@@ -7,6 +7,8 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { NoteEditor } from "./components/notes/NoteEditor";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { ChatPanel } from "./components/chat/ChatPanel";
+import { ensureLlmFetch } from "./components/settings/ProvidersSection";
 import { UndoToast } from "./components/common/UndoToast";
 import { useNotesStore } from "./lib/store/notesStore";
 import { useUi } from "./lib/store/uiStore";
@@ -58,6 +60,7 @@ function Shell() {
 
   useEffect(() => {
     void load();
+    void ensureLlmFetch();
   }, [load]);
 
   useEffect(() => {
@@ -104,7 +107,7 @@ function Shell() {
       <div className="flex-1 flex min-h-0">
         <Sidebar />
         <NoteEditor />
-        {/* Chat panel — Phase 2 */}
+        <ChatPanel />
       </div>
       <CommandPalette />
       <SettingsDialog />

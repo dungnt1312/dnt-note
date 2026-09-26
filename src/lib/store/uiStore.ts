@@ -13,11 +13,13 @@ interface UiState {
   tagFilter: string | null;
   paletteOpen: boolean;
   settingsOpen: boolean;
+  chatOpen: boolean;
   toasts: Toast[];
   setSearchQuery: (q: string) => void;
   setTagFilter: (t: string | null) => void;
   setPaletteOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  setChatOpen: (open: boolean) => void;
   pushToast: (toast: Omit<Toast, "id" | "expiresAt"> & { durationMs?: number }) => void;
   dismissToast: (id: number) => void;
 }
@@ -29,12 +31,14 @@ export const useUi = create<UiState>()((set) => ({
   tagFilter: null,
   paletteOpen: false,
   settingsOpen: false,
+  chatOpen: false,
   toasts: [],
 
   setSearchQuery: (q) => set({ searchQuery: q }),
   setTagFilter: (t) => set({ tagFilter: t }),
   setPaletteOpen: (open) => set({ paletteOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setChatOpen: (open) => set({ chatOpen: open }),
 
   pushToast: ({ durationMs = 10000, onAction, actionLabel, message }) => {
     const id = ++toastSeq;

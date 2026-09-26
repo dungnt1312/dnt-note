@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSseChunk, extractToolCallDelta, type StreamDelta } from "./openai";
+import { parseSseChunk, extractToolCallDelta } from "./openai";
 
 describe("parseSseChunk", () => {
   it("parses complete data events and returns remainder", () => {
@@ -29,8 +29,9 @@ describe("parseSseChunk", () => {
 });
 
 describe("extractToolCallDelta", () => {
+  type MergedCall = { id: string; name: string; arguments: string };
   it("merges tool call argument fragments by index", () => {
-    const calls: Record<number, StreamDelta["toolCalls"][number]> = {};
+    const calls: Record<number, MergedCall> = {};
     const frags = [
       { index: 0, id: "call_1", name: "read_note", args: '{"id":' },
       { index: 0, id: undefined, name: undefined, args: '"n1"}' },
@@ -42,7 +43,7 @@ describe("extractToolCallDelta", () => {
   });
 
   it("tracks two parallel tool calls", () => {
-    const calls: Record<number, StreamDelta["toolCalls"][number]> = {};
+    const calls: Record<number, MergedCall> = {};
     extractToolCallDelta(calls, { index: 0, id: "a", name: "list_notes", args: "{}" });
     extractToolCallDelta(calls, { index: 1, id: "b", name: "get_stats", args: "" });
     expect(Object.keys(calls).length).toBe(2);

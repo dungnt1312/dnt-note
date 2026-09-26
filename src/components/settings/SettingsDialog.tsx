@@ -5,13 +5,15 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { api } from "../../lib/api/notes";
 import { useUi } from "../../lib/store/uiStore";
 import { useTheme, type Theme } from "../theme/ThemeProvider";
+import { ProvidersSection } from "./ProvidersSection";
 import { cn } from "../../lib/utils";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-type Tab = "appearance" | "data" | "about";
+type Tab = "ai" | "appearance" | "data" | "about";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "ai", label: "AI Providers" },
   { id: "appearance", label: "Giao diện" },
   { id: "data", label: "Dữ liệu" },
   { id: "about", label: "Về ứng dụng" },
@@ -126,7 +128,7 @@ function AboutSection() {
 export function SettingsDialog() {
   const open = useUi((s) => s.settingsOpen);
   const setOpen = useUi((s) => s.setSettingsOpen);
-  const [tab, setTab] = useState<Tab>("appearance");
+  const [tab, setTab] = useState<Tab>("ai");
 
   if (!open) return null;
 
@@ -166,6 +168,7 @@ export function SettingsDialog() {
           ))}
         </div>
         <div className="p-4 max-h-[60vh] overflow-y-auto">
+          {tab === "ai" && <ProvidersSection />}
           {tab === "appearance" && <AppearanceSection />}
           {tab === "data" && <DataSection />}
           {tab === "about" && <AboutSection />}

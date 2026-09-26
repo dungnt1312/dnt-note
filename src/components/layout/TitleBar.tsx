@@ -1,4 +1,4 @@
-import { Minus, Square, X, Search, Settings, Sun, Moon, Monitor } from "lucide-react";
+import { Minus, Square, X, Search, Settings, Sun, Moon, Monitor, Bot } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useUi } from "../../lib/store/uiStore";
 import { useTheme } from "../theme/ThemeProvider";
@@ -29,6 +29,8 @@ function ThemeToggle() {
 export function TitleBar() {
   const setPaletteOpen = useUi((s) => s.setPaletteOpen);
   const setSettingsOpen = useUi((s) => s.setSettingsOpen);
+  const chatOpen = useUi((s) => s.chatOpen);
+  const setChatOpen = useUi((s) => s.setChatOpen);
 
   return (
     <div
@@ -48,6 +50,14 @@ export function TitleBar() {
         <Search size={13} />
         <span>Tìm kiếm</span>
         <kbd className="text-[10px] px-1 rounded bg-[var(--bg-hover)]">Ctrl K</kbd>
+      </button>
+
+      <button
+        onClick={() => setChatOpen(!chatOpen)}
+        title="Trợ lý AI"
+        className={`p-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] ${chatOpen ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"}`}
+      >
+        <Bot size={15} />
       </button>
 
       <ThemeToggle />
