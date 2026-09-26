@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Moon, Plus, Settings, Sun, Monitor } from "lucide-react";
+import { FileText, Moon, Plus, Settings, Sun, Monitor, Trash2 } from "lucide-react";
+import { api } from "../../lib/api/notes";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
 import { useTheme, type Theme } from "../theme/ThemeProvider";
-import { filterNotes } from "../../lib/filterNotes";
+import { fuzzyRank } from "../../lib/fuzzy";
 
 interface PaletteItem {
   id: string;
@@ -58,14 +59,22 @@ export function CommandPalette() {
         icon: <Settings size={15} />,
         run: () => setSettingsOpen(true),
       },
+      {
+        id: "act-empty-trash",
+        label: "Xóa sạch thùng rác",
+        icon: <Trash2 size={15} />,
+        run: () => {
+          void api.notes.emptyTrash().then((n) => {
+            useUi.getState().pushToast({ message: `Đã xóa ${n} ghi chú trong thùng rác`, durationMs: 4000 });
+          });
+        },
+      },
     ];
     const q = query.trim().toLowerCase();
-    const matchedActions = q
-      ? actions.filter((a) => a.label.toLowerCase().includes(q))
-      : actions;
-    const matchedNotes = filterNotes(notes, query)
+    const matchedActions = fuzzyRank(actions, q, (a) => a.label.toLowerCase()).map((r) => r.item);
+    const matchedNotes = fuzzyRank(notes, q, (n) => `${n.title} ${n.snippet}`)
       .slice(0, 8)
-      .map<PaletteItem>((n) => ({
+      .map<PaletteItem>(({ item: n }) => ({
         id: `note-${n.id}`,
         label: n.title,
         hint: n.snippet.slice(0, 40),

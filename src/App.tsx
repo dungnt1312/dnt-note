@@ -6,6 +6,7 @@ import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NoteEditor } from "./components/notes/NoteEditor";
 import { CommandPalette } from "./components/layout/CommandPalette";
+import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { UndoToast } from "./components/common/UndoToast";
 import { useNotesStore } from "./lib/store/notesStore";
 import { useUi } from "./lib/store/uiStore";
@@ -61,6 +62,11 @@ function Shell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        const ui = useUi.getState();
+        if (ui.settingsOpen) ui.setSettingsOpen(false);
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "z") {
         const toasts = useUi.getState().toasts;
@@ -101,6 +107,7 @@ function Shell() {
         {/* Chat panel — Phase 2 */}
       </div>
       <CommandPalette />
+      <SettingsDialog />
       <UndoToast />
     </div>
   );
