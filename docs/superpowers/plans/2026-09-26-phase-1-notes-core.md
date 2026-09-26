@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: app chạy được `npm run dev` (Vite), `npm run tauri dev` (cửa sổ DNT Note), `cargo test` trong workspace, `npm test` (vitest). `src-tauri/src/lib.rs` export `run()` với plugin store + opener; `notes-core` lib rỗng (Task 2 lấp đầy).
 
-- [ ] **Step 1: Tạo package.json + cấu hình frontend**
+- [x] **Step 1: Tạo package.json + cấu hình frontend**
 
 ```json
 {
@@ -90,7 +90,7 @@ export default defineConfig({
 
 `vitest.config.ts`: dùng môi trường jsdom, setupFiles `./vitest.setup.ts` (import "@testing-library/jest-dom/vitest"), plugin react. `tsconfig.json`: target ES2022, jsx react-jsx, strict, paths không cần. `index.html`: title "DNT Note", div#root, script src /src/main.tsx. `src/main.tsx` mount App. `src/index.css`: `@import "tailwindcss";`. `src/App.tsx`: trả `<div className="p-4">DNT Note</div>`. `.gitignore` thêm: `dist/`, `src-tauri/target/`, `src-tauri/gen/`.
 
-- [ ] **Step 2: Tạo Cargo workspace + tauri.conf.json**
+- [x] **Step 2: Tạo Cargo workspace + tauri.conf.json**
 
 `src-tauri/Cargo.toml` (workspace root + app package chung 1 file):
 
@@ -184,12 +184,12 @@ pub fn run() {
 
 `src-tauri/build.rs`: `fn main() { tauri_build::build() }`. Icons: chạy `npx tauri icon` với 1 PNG mặc định (tạo PNG 1024 bằng script node canvas? — đơn giản nhất: dùng icon mặc định của template `npm create tauri-app`; nếu không có, generate `icons/icon.ico` từ 1 PNG thuần màu viết bằng hex. Chấp nhận icon đơn giản Phase 1).
 
-- [ ] **Step 3: Cài deps + kiểm chứng build**
+- [x] **Step 3: Cài deps + kiểm chứng build**
 
 Run: `npm install`, rồi `cargo check` trong `src-tauri/` (lần đầu tải crate ~vài phút), rồi `npm test` (vitest không test nào = pass), `npm run build`.
 Expected: không lỗi. Nếu `cargo check` lỗi icon/tauri.conf — sửa theo message.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "phase-1: scaffold Tauri 2 + React workspace"
@@ -212,7 +212,7 @@ git add -A && git commit -m "phase-1: scaffold Tauri 2 + React workspace"
   - `note_file::parse(contents: &str) -> Result<Note, NoteError>` (id/file-name mismatch do store kiểm)
   - `note_file::serialize(note: &Note) -> String`
 
-- [ ] **Step 1: Viết test round-trip failing**
+- [x] **Step 1: Viết test round-trip failing**
 
 `note_file.rs` tests (viết trước, `parse`/`serialize` chưa tồn tại → compile fail):
 
@@ -227,12 +227,12 @@ fn sample_note() -> Note { /* id "a1", title "Ghi chú: tiếng Việt", tags ["
 #[test] serialize_omits_unknown_frontmatter(); // YAML lạ bị bỏ khi serialize lại
 ```
 
-- [ ] **Step 2: Chạy test fail**
+- [x] **Step 2: Chạy test fail**
 
 Run: `cd src-tauri && cargo test -p notes-core`
 Expected: compile error (không có hàm parse/serialize).
 
-- [ ] **Step 3: Implement parse/serialize**
+- [x] **Step 3: Implement parse/serialize**
 
 Chiến lược: tách frontmatter thủ công — nội dung bắt đầu `---\n`, tìm dòng `---`/`...` kế tiếp (cột 0) để lấy khối YAML, body = phần còn lại (normalize `\r\n`→`\n` trước). Parse YAML bằng `serde_yaml::from_str::<Frontmatter>` với struct:
 
@@ -244,11 +244,11 @@ struct Frontmatter { id: String, title: String, tags: Vec<String>, pinned: bool,
 
 Serialize: `serde_yaml::to_string(&Frontmatter{...})` → ghép `---\n{yaml}---\n{body}` (đảm bảo yaml kết thúc `\n`). created/updated None → `Utc::now()`. `title` rỗng → "Untitled". `snippet` = 140 ký tự đầu body (strip `#*`-[] prefix chars, collapse whitespace).
 
-- [ ] **Step 4: Chạy test pass**
+- [x] **Step 4: Chạy test pass**
 
 Run: `cargo test -p notes-core` → 7 test PASS.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "phase-1: notes-core note model + frontmatter round-trip"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "phase-1: notes-core note model + frontmatter round-trip"`
 
 ---
 
@@ -271,7 +271,7 @@ Run: `cargo test -p notes-core` → 7 test PASS.
   - `stats() -> Stats { total: usize, pinned: usize, words: u64, tags: usize }`
   - `reload()` — rebuild index (watcher gọi); store giữ `HashMap<String, NoteMeta>` in-memory + `changed_ids: Vec<String>` từ watcher merge vào.
 
-- [ ] **Step 1: Viết test failing** — `mod tests` với tempdir (`tempfile` dev-dep thêm vào notes-core):
+- [x] **Step 1: Viết test failing** — `mod tests` với tempdir (`tempfile` dev-dep thêm vào notes-core):
 
 ```rust
 #[test] create_and_list_roundtrip();      // create → list có meta, snippet đúng, read đủ body
@@ -285,10 +285,10 @@ Run: `cargo test -p notes-core` → 7 test PASS.
 #[test] reload_picks_up_external_changes(); // ghi đè file ngoài store → reload → read thấy
 ```
 
-- [ ] **Step 2: Chạy fail** (`cargo test -p notes-core` → compile error).
-- [ ] **Step 3: Implement** — `create` dùng `uuid::new_v4()`, created/updated = now, id trùng (hiếm) → regenerate. Ghi atomic: `fs::write(tmp)` + `fs::rename`. `update`: read + apply patch + serialize + write. `list/search/tags/stats` đọc qua index (rebuild khi init, gọi `reload()` khi watcher báo).
-- [ ] **Step 4: Chạy pass** — `cargo test -p notes-core` → tất cả PASS.
-- [ ] **Step 5: Commit** — `phase-1: notes-core NotesStore CRUD/search/tags/stats`
+- [x] **Step 2: Chạy fail** (`cargo test -p notes-core` → compile error).
+- [x] **Step 3: Implement** — `create` dùng `uuid::new_v4()`, created/updated = now, id trùng (hiếm) → regenerate. Ghi atomic: `fs::write(tmp)` + `fs::rename`. `update`: read + apply patch + serialize + write. `list/search/tags/stats` đọc qua index (rebuild khi init, gọi `reload()` khi watcher báo).
+- [x] **Step 4: Chạy pass** — `cargo test -p notes-core` → tất cả PASS.
+- [x] **Step 5: Commit** — `phase-1: notes-core NotesStore CRUD/search/tags/stats`
 
 ---
 
@@ -301,17 +301,17 @@ Run: `cargo test -p notes-core` → 7 test PASS.
 **Interfaces:**
 - Produces: `NotesWatcher::start(notes_dir: &Path, debounce_ms: u64, on_change: impl Fn(Vec<String>) + Send + 'static) -> Result<WatcherHandle, NoteError>`; `WatcherHandle::stop(self)`. Callback nhận danh sách id (tên file .md không đuôi, loại trừ `.trash/`).
 
-- [ ] **Step 1: Test failing** (polling, timeout 5s):
+- [x] **Step 1: Test failing** (polling, timeout 5s):
 
 ```rust
 #[test] reports_created_note_id();   // tạo a.md trong tempdir → callback nhận ["a"] trong 5s
 #[test] ignores_trash_and_non_md();  // ghi .trash/x.md, b.txt → không callback
 ```
 
-- [ ] **Step 2: Chạy fail** → compile error.
-- [ ] **Step 3: Implement** — `notify_debouncer_full::new_debouncer` watch recursive; trong thread callback: lọc event path đuôi `.md`, cha là notes_dir (không `.trash`), đẩy id vào HashSet → gọi closure với vec (dedup + sort). `WatcherHandle` giữ `ChannelSender` stop hoặc `Drop` dừng watcher (dùng `panic::catch_unwind`-free: giữ sender, drop = watcher kết thúc tự nhiên vì debouncer giữ trong thread; đơn giản: handle giữ `std::sync::mpsc::Sender<()>` + thread flag).
-- [ ] **Step 4: Chạy pass** → 2 test PASS (chạy riêng `cargo test -p notes-core watcher -- --test-threads=1` nếu flaky).
-- [ ] **Step 5: Commit** — `phase-1: notes-core file watcher với debounce`
+- [x] **Step 2: Chạy fail** → compile error.
+- [x] **Step 3: Implement** — `notify_debouncer_full::new_debouncer` watch recursive; trong thread callback: lọc event path đuôi `.md`, cha là notes_dir (không `.trash`), đẩy id vào HashSet → gọi closure với vec (dedup + sort). `WatcherHandle` giữ `ChannelSender` stop hoặc `Drop` dừng watcher (dùng `panic::catch_unwind`-free: giữ sender, drop = watcher kết thúc tự nhiên vì debouncer giữ trong thread; đơn giản: handle giữ `std::sync::mpsc::Sender<()>` + thread flag).
+- [x] **Step 4: Chạy pass** → 2 test PASS (chạy riêng `cargo test -p notes-core watcher -- --test-threads=1` nếu flaky).
+- [x] **Step 5: Commit** — `phase-1: notes-core file watcher với debounce`
 
 ---
 
@@ -327,10 +327,10 @@ Run: `cargo test -p notes-core` → 7 test PASS.
   - Commands: `list_notes() -> Vec<NoteMeta>`, `read_note(id) -> Note`, `create_note(title, body?, tags?) -> Note`, `update_note(id, patch: NotePatchDto) -> Note`, `delete_note(id)`, `restore_note(id) -> Note`, `search_notes(query, limit?) -> Vec<NoteMeta>`, `list_tags() -> Vec<TagCount{name,count}>`, `get_stats() -> Stats`
   - Setup: nếu store flag `onboarded` chưa có → seed 4 demo notes từ `include_str!`, set flag. Watcher spawn trong `setup` → `app_handle.emit("notes://changed", ids)`; store gọi `reload()` trước khi emit.
 
-- [ ] **Step 1: Demo notes** — 4 file .md có frontmatter đúng schema (title tiếng Việt; 03-checklist có checkboxes; 04-ai-assistant mô tả Phase 2). Frontmatter id để placeholder `PENDING` — seed code sẽ thay id thật khi parse (ghi `id: ""`, store.create ghi đè). Đơn giản hơn: seed gọi `store.create(title, body, tags)` với body = phần thân (không frontmatter) — **chọn cách này**, file demo chỉ chứa markdown body.
-- [ ] **Step 2: Implement state + commands** — `state.rs`: `pub struct AppState { pub store: Mutex<NotesStore> }`. Commands mỏng: lock store, gọi phương thức, map `NoteError` → `Result<T, String>` (format `code: message`) để invoke bắt lỗi dễ. Setup hook: seed + watcher (`let handle = app.handle().clone(); std::thread::spawn(move || watcher loop)`).
-- [ ] **Step 3: Kiểm chứng** — `cargo check` pass; `npm run tauri dev` mở app (UI vẫn placeholder), kiểm `%APPDATA%/com.dungnt.dntnote/notes/` có 4 file .md + frontmatter đúng sau lần chạy đầu. (Commands chưa có UI gọi — smoke bằng devtools console: `await __TAURI__.core.invoke('list_notes')` trả mảng 4 phần tử.)
-- [ ] **Step 4: Commit** — `phase-1: tauri commands + demo seed + watcher event`
+- [x] **Step 1: Demo notes** — 4 file .md có frontmatter đúng schema (title tiếng Việt; 03-checklist có checkboxes; 04-ai-assistant mô tả Phase 2). Frontmatter id để placeholder `PENDING` — seed code sẽ thay id thật khi parse (ghi `id: ""`, store.create ghi đè). Đơn giản hơn: seed gọi `store.create(title, body, tags)` với body = phần thân (không frontmatter) — **chọn cách này**, file demo chỉ chứa markdown body.
+- [x] **Step 2: Implement state + commands** — `state.rs`: `pub struct AppState { pub store: Mutex<NotesStore> }`. Commands mỏng: lock store, gọi phương thức, map `NoteError` → `Result<T, String>` (format `code: message`) để invoke bắt lỗi dễ. Setup hook: seed + watcher (`let handle = app.handle().clone(); std::thread::spawn(move || watcher loop)`).
+- [x] **Step 3: Kiểm chứng** — `cargo check` pass; `npm run tauri dev` mở app (UI vẫn placeholder), kiểm `%APPDATA%/com.dungnt.dntnote/notes/` có 4 file .md + frontmatter đúng sau lần chạy đầu. (Commands chưa có UI gọi — smoke bằng devtools console: `await __TAURI__.core.invoke('list_notes')` trả mảng 4 phần tử.)
+- [x] **Step 4: Commit** — `phase-1: tauri commands + demo seed + watcher event`
 
 ---
 
@@ -349,11 +349,11 @@ Run: `cargo test -p notes-core` → 7 test PASS.
   - ThemeProvider: class `dark` trên `<html>`, localStorage `theme: light|dark|system`, matchMedia listener.
   - `tokens.css`: variables `--bg, --bg-panel, --bg-elevated, --text, --text-secondary, --border, --accent, --danger, --radius-*` cho light + `.dark`; typography classes `.t-xs(11px) … .t-2xl(28px)`.
 
-- [ ] **Step 1: Test failing** — `src/lib/debounce.test.ts` (timer fake: gọi 3 lần trong 100ms → 1 lần sau 600ms), `src/lib/store/notesStore.test.ts` (mock `lib/api/notes` qua `vi.mock`: setBody → không gọi api ngay, advance 600ms → gọi `update` đúng 1 lần với body mới; `del` → `lastDeleted` giữ note; `undoDelete` → gọi `restore` + note quay lại list).
-- [ ] **Step 2: Chạy fail** — `npm test` → fail.
-- [ ] **Step 3: Implement** — đúng interfaces trên. App.tsx render `<ThemeProvider><div>DNT Note</div></ThemeProvider>` (Task 8 thay UI thật).
-- [ ] **Step 4: Chạy pass** — `npm test` PASS.
-- [ ] **Step 5: Commit** — `phase-1: frontend api layer + stores + theme tokens`
+- [x] **Step 1: Test failing** — `src/lib/debounce.test.ts` (timer fake: gọi 3 lần trong 100ms → 1 lần sau 600ms), `src/lib/store/notesStore.test.ts` (mock `lib/api/notes` qua `vi.mock`: setBody → không gọi api ngay, advance 600ms → gọi `update` đúng 1 lần với body mới; `del` → `lastDeleted` giữ note; `undoDelete` → gọi `restore` + note quay lại list).
+- [x] **Step 2: Chạy fail** — `npm test` → fail.
+- [x] **Step 3: Implement** — đúng interfaces trên. App.tsx render `<ThemeProvider><div>DNT Note</div></ThemeProvider>` (Task 8 thay UI thật).
+- [x] **Step 4: Chạy pass** — `npm test` PASS.
+- [x] **Step 5: Commit** — `phase-1: frontend api layer + stores + theme tokens`
 
 ---
 
@@ -377,7 +377,7 @@ Run: `cargo test -p notes-core` → 7 test PASS.
     - "Active line" = dòng chứa đầu hoặc cuối selection chính; decorations "thô" chỉ áp dòng không active; plugin re-compute khi `update` (docChanged, selectionSet, viewport changed).
   - Pure helpers test được: `lineIsActive(state, lineNo): boolean`, `collectLineDecorations(ctx: { node: SyntaxNodeRef, lineText: string, isActive: boolean }): DecorationSpec[]` — `DecorationSpec` = `{ from, to, kind: "mark"|"replace"|"line", class?: string, widget?: "checkbox", checked?: boolean }` (test không cần EditorView thật).
 
-- [ ] **Step 1: Test failing** — `livePreview.test.ts` dùng `EditorState.create({ doc, extensions: [markdown({ extensions: [gfm()] }), livePreviewTestable] })` + assert qua `collectLineDecorations`:
+- [x] **Step 1: Test failing** — `livePreview.test.ts` dùng `EditorState.create({ doc, extensions: [markdown({ extensions: [gfm()] }), livePreviewTestable] })` + assert qua `collectLineDecorations`:
 
 ```ts
 describe("live preview decorations", () => {
@@ -392,10 +392,10 @@ describe("checkbox toggle", () => {
 })
 ```
 
-- [ ] **Step 2: Chạy fail** — `npm test` → fail.
-- [ ] **Step 3: Implement** — đúng interfaces trên. Lưu ý hiệu năng: chỉ duyệt `viewport` lines, recompute trong `update(viewportChanged || docChanged || selectionSet)`. Widget class `cm-checkbox` dùng `<input type=checkbox>` DOM, event `mousedown` → `preventDefault` + dispatch change (để không mất focus editor).
-- [ ] **Step 4: Chạy pass** — `npm test` PASS.
-- [ ] **Step 5: Commit** — `phase-1: CM6 live preview decorations + interactive checkboxes`
+- [x] **Step 2: Chạy fail** — `npm test` → fail.
+- [x] **Step 3: Implement** — đúng interfaces trên. Lưu ý hiệu năng: chỉ duyệt `viewport` lines, recompute trong `update(viewportChanged || docChanged || selectionSet)`. Widget class `cm-checkbox` dùng `<input type=checkbox>` DOM, event `mousedown` → `preventDefault` + dispatch change (để không mất focus editor).
+- [x] **Step 4: Chạy pass** — `npm test` PASS.
+- [x] **Step 5: Commit** — `phase-1: CM6 live preview decorations + interactive checkboxes`
 
 ---
 
@@ -410,14 +410,14 @@ describe("checkbox toggle", () => {
 - Consumes: `useNotes`, `useUi` (Task 6), `editorSetup` (Task 7), `@tauri-apps/api/window` (`getCurrentWindow().minimize/toggleMaximize/close`, drag qua `data-tauri-drag-region`)
 - Produces: layout chính chạy được end-to-end: chọn note → load body → sửa → autosave (chỉ báo "Saving…/Saved" ở EditorHeader), Ctrl+N tạo note mới + select, search box lọc client-side.
 
-- [ ] **Step 1: Test failing filter + list** — `filterNotes(notes, query)`: trả notes khớp title hoặc snippet (case-insensitive, trim; rỗng → all, giữ thứ tự store). NoteList.test (render với 3 notes mock + query "md" → đúng 1 item; click item → select được gọi).
-- [ ] **Step 2: Chạy fail** → `npm test` fail.
-- [ ] **Step 3: Implement**
+- [x] **Step 1: Test failing filter + list** — `filterNotes(notes, query)`: trả notes khớp title hoặc snippet (case-insensitive, trim; rỗng → all, giữ thứ tự store). NoteList.test (render với 3 notes mock + query "md" → đúng 1 item; click item → select được gọi).
+- [x] **Step 2: Chạy fail** → `npm test` fail.
+- [x] **Step 3: Implement**
   - `TitleBar`: h-10, drag region, icon + "DNT Note", nút search (mở palette — Task 10, Phase 1 để nút disabled? Không: render nút gọi `useUi.openPalette()` — palette thật đến Task 10, Phase này để `paletteOpen` toggling một dialog rỗng: tránh placeholder → làm Task 10 trước trong cùng task? **Gộp palette minimal vào task này**: dialog liệt kê actions New note/Toggle theme + notes fuzzy — đầy đủ, không rỗng).
   - `Sidebar`: nút "+ New note" (Ctrl+N), search input (Ctrl+F focus), tag chips filter (click → set ui.tagFilter), `NoteList` nhóm PINNED/ALL; `NoteItem`: title (t-2xl? không — t-sm 14px medium), snippet t-xs text-secondary, ngày (relative "hôm qua"), tag chips nhỏ, hover: nút pin + xóa (xóa qua Task 9 undo flow — ở đây gọi `useNotes.del`).
   - `NoteEditor`: header (title input t-2xl 28px, tags input tối giản "enter để thêm", pin toggle, chỉ báo save state), body: `useCodeMirror` ref mount `editorSetup({ onChange: setBody })` + `Dispatch` khi đổi note (replace toàn bộ doc, preserve scroll off). EmptyState khi không chọn note: logo + "Tạo ghi chú đầu tiên (Ctrl+N)".
-- [ ] **Step 4: Chạy pass + smoke** — `npm test` PASS; `npm run tauri dev`: tạo/sửa/đổi note thấy autosave ghi file (kiểm mtime), đổi note khác và quay lại thấy nội dung.
-- [ ] **Step 5: Commit** — `phase-1: UI 3 cột + editor mount + palette minimal`
+- [x] **Step 4: Chạy pass + smoke** — `npm test` PASS; `npm run tauri dev`: tạo/sửa/đổi note thấy autosave ghi file (kiểm mtime), đổi note khác và quay lại thấy nội dung.
+- [x] **Step 5: Commit** — `phase-1: UI 3 cột + editor mount + palette minimal`
 
 ---
 
@@ -431,11 +431,11 @@ describe("checkbox toggle", () => {
 - Consumes: `useNotes.del/undoDelete/restore`, `api.notes.tags`, `useUi` toast state (`useUi.toasts` hoặc `useToast` mini-store trong uiStore)
 - Produces: xóa note → toast góc dưới "Đã xóa <title> — Ctrl+Z để hoàn tác" tự tắt 10s; Ctrl+Z trong 10s → `restore`; tag CRUD hoàn chỉnh (thêm Enter, xóa nút ×, click tag ở list = filter); pin toggle sync cả list lẫn editor header.
 
-- [ ] **Step 1: Test failing** — `notesStore.test.ts` thêm: `del` + `undoDelete` sau khi `del` lần nữa → restore gọi 2 lần đúng id; `toast tự hết hạn` (fake timers 10s → toast removed).
-- [ ] **Step 2: Chạy fail.**
-- [ ] **Step 3: Implement** — UndoToast render từ uiStore.toasts (mỗi toast: id, message, actionLabel, onAction, expiresAt); App đăng keydown Ctrl+Z → gọi onAction toast undo mới nhất nếu còn.
-- [ ] **Step 4: Chạy pass + smoke** — PASS; tauri dev: xóa → undo được, note quay lại đúng vị trí.
-- [ ] **Step 5: Commit** — `phase-1: trash + undo toast + tag/pin wiring`
+- [x] **Step 1: Test failing** — `notesStore.test.ts` thêm: `del` + `undoDelete` sau khi `del` lần nữa → restore gọi 2 lần đúng id; `toast tự hết hạn` (fake timers 10s → toast removed).
+- [x] **Step 2: Chạy fail.**
+- [x] **Step 3: Implement** — UndoToast render từ uiStore.toasts (mỗi toast: id, message, actionLabel, onAction, expiresAt); App đăng keydown Ctrl+Z → gọi onAction toast undo mới nhất nếu còn.
+- [x] **Step 4: Chạy pass + smoke** — PASS; tauri dev: xóa → undo được, note quay lại đúng vị trí.
+- [x] **Step 5: Commit** — `phase-1: trash + undo toast + tag/pin wiring`
 
 ---
 
@@ -450,11 +450,11 @@ describe("checkbox toggle", () => {
 - Consumes: `api.notes.list/tags/stats`, `useNotes.create/select`, ThemeProvider (setTheme), `@tauri-apps/plugin-opener` (`openPath(appDataDir()/notes)`) — dùng `@tauri-apps/api/path` lấy dir.
 - Produces: `fuzzyMatch(query, text): number | null` (subsequence, điểm: consecutive bonus, start-of-word bonus; null = không khớp) — palette sort theo điểm. Palette items = actions (New note, Toggle theme, Light/Dark/System, Settings, Empty trash) + notes (chọn → select + đóng). Settings dialog 3 tab: **Appearance** (theme radio 3 lựa chọn), **Data** (nút "Mở thư mục dữ liệu" → opener.openPath, "Xóa thùng rác" → gọi command `empty_trash`? — KHÔNG có trong Task 5; thêm command `empty_trash` vào đây trong Task này, có test rust `empty_trash_deletes_trash_files`), **About** (phiên bản 0.1.0, ghi credit NoteStudio). Hotkeys: Ctrl+P và Ctrl+K mở palette, Ctrl+N new, Ctrl+S force save, Esc đóng.
 
-- [ ] **Step 1: Test failing** — `fuzzy.test.ts`: `fuzzyMatch("nt", "DNT Note") != null` (khớp D-N-T? "nt" khớp "N"ote "T"? assertion cụ thể: `fuzzyMatch("dnt", "DNT Note")` !== null; `fuzzyMatch("xyz", "DNT Note")` === null; điểm "dn" < điểm "dnt" trên cùng text).
-- [ ] **Step 2: Chạy fail.**
-- [ ] **Step 3: Implement** — fuzzy + palette + settings + empty_trash (Rust: lặp `.trash/*.md` xóa; test trong `src-tauri/src/commands/notes.rs` `#[cfg(test)]` với tauri::test? — command dùng store từ state: tách logic `empty_trash_dir(dir: &Path)` vào notes-core (`store.empty_trash()` + test tempdir) rồi command gọi. **Quyết định: `NotesStore::empty_trash() -> usize` ở notes-core kèm test.**)
-- [ ] **Step 4: Chạy pass + smoke** — PASS cả `npm test` lẫn `cargo test`; tauri dev: Ctrl+K mở, gõ "md" thấy note, Enter mở; đổi theme dark sáng đúng tokens; mở thư mục dữ liệu mở Explorer.
-- [ ] **Step 5: Commit** — `phase-1: command palette + settings + empty trash`
+- [x] **Step 1: Test failing** — `fuzzy.test.ts`: `fuzzyMatch("nt", "DNT Note") != null` (khớp D-N-T? "nt" khớp "N"ote "T"? assertion cụ thể: `fuzzyMatch("dnt", "DNT Note")` !== null; `fuzzyMatch("xyz", "DNT Note")` === null; điểm "dn" < điểm "dnt" trên cùng text).
+- [x] **Step 2: Chạy fail.**
+- [x] **Step 3: Implement** — fuzzy + palette + settings + empty_trash (Rust: lặp `.trash/*.md` xóa; test trong `src-tauri/src/commands/notes.rs` `#[cfg(test)]` với tauri::test? — command dùng store từ state: tách logic `empty_trash_dir(dir: &Path)` vào notes-core (`store.empty_trash()` + test tempdir) rồi command gọi. **Quyết định: `NotesStore::empty_trash() -> usize` ở notes-core kèm test.**)
+- [x] **Step 4: Chạy pass + smoke** — PASS cả `npm test` lẫn `cargo test`; tauri dev: Ctrl+K mở, gõ "md" thấy note, Enter mở; đổi theme dark sáng đúng tokens; mở thư mục dữ liệu mở Explorer.
+- [x] **Step 5: Commit** — `phase-1: command palette + settings + empty trash`
 
 ---
 
@@ -465,7 +465,7 @@ describe("checkbox toggle", () => {
 
 **Interfaces:** Không đổi API — chỉ hoàn thiện.
 
-- [ ] **Step 1: Smoke checklist chạy tay** (ghi kết quả vào README mục "Đã kiểm chứng"):
+- [x] **Step 1: Smoke checklist chạy tay** (ghi kết quả vào README mục "Đã kiểm chứng"):
   1. Chạy lần đầu → 4 demo notes xuất hiện.
   2. Ctrl+N → note mới, gõ `# Tiêu đề` + `- [ ] việc` → live preview đúng, click checkbox đổi file.
   3. Sửa → dừng 600ms → "Saved" + file mtime đổi.
@@ -473,8 +473,8 @@ describe("checkbox toggle", () => {
   5. Xóa → Ctrl+Z → note trở lại; Empty trash trong Settings xóa .trash.
   6. Ctrl+K palette tìm + mở; theme System theo Windows; contrast chữ phụ đọc được.
   7. Search lọc tức thời; tag filter hoạt động.
-- [ ] **Step 2: Build verify** — `npm run build` (tsc + vite) PASS; `cargo test` toàn workspace PASS; `npm run tauri build` tạo installer NSIS (chấp nhận dài; nếu không có env build đủ — chỉ `cargo build --release` pass).
-- [ ] **Step 3: Commit** — `phase-1: polish + readme + smoke verified`
+- [x] **Step 2: Build verify** — `npm run build` (tsc + vite) PASS; `cargo test` toàn workspace PASS; `npm run tauri build` tạo installer NSIS (chấp nhận dài; nếu không có env build đủ — chỉ `cargo build --release` pass).
+- [x] **Step 3: Commit** — `phase-1: polish + readme + smoke verified`
 
 ---
 
