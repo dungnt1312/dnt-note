@@ -27,3 +27,6 @@ notes-core = { path = "crates/notes-core" }
 lto = true
 codegen-units = 1
 strip = true
+
+[dev-dependencies]
+tempfile = "3"
