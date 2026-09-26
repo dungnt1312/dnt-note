@@ -1,0 +1,54 @@
+import { Pin } from "lucide-react";
+import { cn } from "../../lib/utils";
+import type { NoteMeta } from "../../lib/api/notes";
+import { dateLabel } from "./NoteList";
+
+interface NoteItemProps {
+  note: NoteMeta;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  showPin?: boolean;
+}
+
+export function NoteItem({ note, selected, onSelect, showPin }: NoteItemProps) {
+  return (
+    <button
+      role="button"
+      onClick={() => onSelect(note.id)}
+      className={cn(
+        "w-full text-left px-3 py-2.5 rounded-[var(--radius-md)] mb-0.5 transition-colors",
+        "hover:bg-[var(--bg-hover)]",
+        selected ? "bg-[var(--accent-soft)]" : "bg-transparent",
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        {note.pinned && showPin && (
+          <span className="text-[var(--accent)] shrink-0">
+            <Pin size={12} strokeWidth={2.5} />
+          </span>
+        )}
+        <span className="flex-1 truncate text-[14px] font-medium text-[var(--text)]">
+          {note.title}
+        </span>
+        <span className="text-[11px] text-[var(--text-faint)] shrink-0">
+          {dateLabel(note.updated)}
+        </span>
+      </div>
+      <div className="mt-0.5 text-[12px] text-[var(--text-secondary)] truncate">
+        {note.snippet || "—"}
+      </div>
+      {note.tags.length > 0 && (
+        <div className="mt-1 flex gap-1 flex-wrap">
+          {note.tags.map((t) => (
+            <span
+              key={t}
+              className="text-[11px] px-1.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+    </button>
+  );
+}
