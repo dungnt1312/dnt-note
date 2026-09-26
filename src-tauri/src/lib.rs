@@ -38,6 +38,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             let notes_dir = app_data_notes_dir(&handle);
@@ -80,6 +82,10 @@ pub fn run() {
             commands::notes::list_tags,
             commands::notes::empty_trash,
             commands::stats::get_stats,
+            commands::chats::list_chats,
+            commands::chats::load_chat,
+            commands::chats::save_chat,
+            commands::chats::delete_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
