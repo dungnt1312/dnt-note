@@ -10,11 +10,24 @@ export function Sidebar() {
   const selectedId = useNotesStore((s) => s.selectedId);
   const select = useNotesStore((s) => s.select);
   const create = useNotesStore((s) => s.create);
+  const del = useNotesStore((s) => s.del);
+  const undoDelete = useNotesStore((s) => s.undoDelete);
 
   const searchQuery = useUi((s) => s.searchQuery);
   const setSearchQuery = useUi((s) => s.setSearchQuery);
   const tagFilter = useUi((s) => s.tagFilter);
   const setTagFilter = useUi((s) => s.setTagFilter);
+  const pushToast = useUi((s) => s.pushToast);
+
+  const handleDelete = (id: string) => {
+    const title = notes.find((n) => n.id === id)?.title ?? "ghi chú";
+    void del(id);
+    pushToast({
+      message: `Đã xóa "${title}"`,
+      actionLabel: "Hoàn tác (Ctrl+Z)",
+      onAction: () => void undoDelete(),
+    });
+  };
 
   const visible = tagFilter ? notes.filter((n) => n.tags.includes(tagFilter)) : notes;
 
@@ -66,6 +79,7 @@ export function Sidebar() {
           notes={visible}
           selectedId={selectedId}
           onSelect={(id) => void select(id)}
+          onDelete={handleDelete}
           query={searchQuery}
         />
       </div>

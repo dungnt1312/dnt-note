@@ -6,6 +6,7 @@ import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NoteEditor } from "./components/notes/NoteEditor";
 import { CommandPalette } from "./components/layout/CommandPalette";
+import { UndoToast } from "./components/common/UndoToast";
 import { useNotesStore } from "./lib/store/notesStore";
 import { useUi } from "./lib/store/uiStore";
 
@@ -61,6 +62,16 @@ function Shell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "z") {
+        const toasts = useUi.getState().toasts;
+        const undoable = [...toasts].reverse().find((t) => t.onAction);
+        if (undoable) {
+          e.preventDefault();
+          undoable.onAction?.();
+          useUi.getState().dismissToast(undoable.id);
+        }
+        return;
+      }
       if (!mod) return;
       const key = e.key.toLowerCase();
       if (key === "n") {
@@ -90,6 +101,7 @@ function Shell() {
         {/* Chat panel — Phase 2 */}
       </div>
       <CommandPalette />
+      <UndoToast />
     </div>
   );
 }

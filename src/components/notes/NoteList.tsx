@@ -6,10 +6,11 @@ interface NoteListProps {
   notes: NoteMeta[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onDelete?: (id: string) => void;
   query?: string;
 }
 
-export function NoteList({ notes, selectedId, onSelect, query = "" }: NoteListProps) {
+export function NoteList({ notes, selectedId, onSelect, onDelete, query = "" }: NoteListProps) {
   const visible = filterNotes(notes, query);
   const pinned = visible.filter((n) => n.pinned);
   const rest = visible.filter((n) => !n.pinned);
@@ -30,7 +31,14 @@ export function NoteList({ notes, selectedId, onSelect, query = "" }: NoteListPr
         </div>
       )}
       {items.map((n) => (
-        <NoteItem key={n.id} note={n} selected={n.id === selectedId} onSelect={onSelect} showPin={showPin} />
+        <NoteItem
+          key={n.id}
+          note={n}
+          selected={n.id === selectedId}
+          onSelect={onSelect}
+          onDelete={onDelete}
+          showPin={showPin}
+        />
       ))}
     </>
   );
