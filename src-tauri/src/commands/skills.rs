@@ -12,14 +12,14 @@ pub const BUNDLED: [(&str, &str); 3] = [
 ];
 
 fn err_of(e: impl std::fmt::Display) -> String {
-    format!("skill-error: {e}")
+    e.to_string()
 }
 
 pub(crate) fn skills_dir(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("data dir: {e}"))?
+        .map_err(|e| format!("Lỗi đọc/ghi skill: {e}"))?
         .join("skills");
     std::fs::create_dir_all(&dir).map_err(err_of)?;
     Ok(dir)

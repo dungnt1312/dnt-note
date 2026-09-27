@@ -46,10 +46,39 @@ fn invalid(msg: &str) -> NoteError {
     NoteError::Unknown(msg.to_string())
 }
 
+fn io_err(e: impl std::fmt::Display) -> NoteError {
+    NoteError::Unknown(format!("Lỗi đọc/ghi skill: {e}"))
+}
+
+fn not_found(name: &str) -> NoteError {
+    NoteError::Unknown(format!("Không tìm thấy skill “{name}”"))
+}
+
+/// Single-pass unescape of `\\` and `\"` inside a double-quoted value.
+fn unescape(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    let mut chars = v.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some(n @ ('\\' | '"')) => out.push(n),
+                Some(n) => {
+                    out.push('\\');
+                    out.push(n);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn unquote(v: &str) -> String {
     let v = v.trim();
     if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
-        v[1..v.len() - 1].replace("\\\"", "\"").replace("\\\\", "\\")
+        unescape(&v[1..v.len() - 1])
     } else if v.len() >= 2 && v.starts_with('\'') && v.ends_with('\'') {
         v[1..v.len() - 1].replace("''", "'")
     } else {
@@ -90,8 +119,19 @@ pub fn parse_skill(text: &str) -> Result<Skill> {
         let Some((k, v)) = line.split_once(':') else { continue };
         match k.trim() {
             "name" => name = unquote(v),
-            "description" => description = unquote(v),
-            "enabled" => enabled = !matches!(unquote(v).to_lowercase().as_str(), "false" | "no" | "0"),
+            "description" => {
+                if matches!(v.trim(), ">" | "|" | ">-" | "|-" | ">+" | "|+") {
+                    return Err(invalid("Mô tả skill không hỗ trợ block scalar (> hoặc |); hãy viết trên một dòng"));
+                }
+                description = unquote(v)
+            }
+            "enabled" => {
+                enabled = match unquote(v).to_lowercase().as_str() {
+                    "true" | "yes" | "1" => true,
+                    "false" | "no" | "0" => false,
+                    _ => return Err(invalid("Giá trị enabled của skill phải là true/false")),
+                }
+            }
             _ => {}
         }
     }
@@ -135,7 +175,10 @@ pub fn read_skill(dir: &Path, name: &str) -> Result<Skill> {
         return Err(invalid("Tên skill không hợp lệ"));
     }
     let path = dir.join(name).join("SKILL.md");
-    let text = fs::read_to_string(&path).map_err(|_| NoteError::NotFound(format!("skill {name}")))?;
+    let text = fs::read_to_string(&path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => not_found(name),
+        _ => io_err(e),
+    })?;
     let skill = parse_skill(&text)?;
     if skill.name != name {
         return Err(invalid("Tên trong SKILL.md không khớp tên thư mục"));
@@ -146,8 +189,11 @@ pub fn read_skill(dir: &Path, name: &str) -> Result<Skill> {
 pub fn save_skill(dir: &Path, skill: &Skill) -> Result<()> {
     validate(skill)?;
     let folder = dir.join(&skill.name);
-    fs::create_dir_all(&folder)?;
-    write_atomic(&folder.join("SKILL.md"), serialize_skill(skill).as_bytes())
+    fs::create_dir_all(&folder).map_err(io_err)?;
+    write_atomic(&folder.join("SKILL.md"), serialize_skill(skill).as_bytes()).map_err(|e| match e {
+        NoteError::Io(e) => io_err(e),
+        other => other,
+    })
 }
 
 pub fn delete_skill(dir: &Path, name: &str) -> Result<()> {
@@ -156,9 +202,9 @@ pub fn delete_skill(dir: &Path, name: &str) -> Result<()> {
     }
     let folder = dir.join(name);
     if !folder.is_dir() {
-        return Err(NoteError::NotFound(format!("skill {name}")));
+        return Err(not_found(name));
     }
-    fs::remove_dir_all(folder)?;
+    fs::remove_dir_all(folder).map_err(io_err)?;
     Ok(())
 }
 
@@ -166,25 +212,6 @@ pub fn set_skill_enabled(dir: &Path, name: &str, enabled: bool) -> Result<()> {
     let mut skill = read_skill(dir, name)?;
     skill.enabled = enabled;
     save_skill(dir, &skill)
-}
-
-/// Copy `<src>/<name>/SKILL.md` into `dst` for skills not yet present.
-pub fn seed_from(src_dir: &Path, dst_dir: &Path) -> Result<usize> {
-    let mut count = 0;
-    for e in fs::read_dir(src_dir)?.flatten() {
-        let src = e.path().join("SKILL.md");
-        if !src.is_file() {
-            continue;
-        }
-        let target = dst_dir.join(e.file_name());
-        if target.exists() {
-            continue;
-        }
-        fs::create_dir_all(&target)?;
-        fs::copy(&src, target.join("SKILL.md"))?;
-        count += 1;
-    }
-    Ok(count)
 }
 
 /// Write in-memory `(name, SKILL.md text)` pairs, skipping existing folders.
@@ -195,8 +222,8 @@ pub fn seed_embedded(dst_dir: &Path, skills: &[(&str, &str)]) -> Result<usize> {
         if target.exists() {
             continue;
         }
-        fs::create_dir_all(&target)?;
-        write_atomic(&target.join("SKILL.md"), text.as_bytes())?;
+        fs::create_dir_all(&target).map_err(io_err)?;
+        write_atomic(&target.join("SKILL.md"), text.as_bytes()).map_err(io_err)?;
         count += 1;
     }
     Ok(count)
@@ -262,19 +289,49 @@ mod tests {
     }
 
     #[test]
-    fn seed_copies_only_missing() {
+    fn seed_embedded_skips_existing() {
         let tmp = TempDir::new().unwrap();
-        let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
-        save_skill(&src, &sample("one")).unwrap();
-        save_skill(&src, &sample("two")).unwrap();
         let mut custom = sample("one");
         custom.body = "custom".into();
-        save_skill(&dst, &custom).unwrap();
-        assert_eq!(seed_from(&src, &dst).unwrap(), 1);
-        assert_eq!(read_skill(&dst, "one").unwrap().body, "custom");
-        assert_eq!(seed_from(&src, &dst).unwrap(), 0);
-        let text = serialize_skill(&sample("three"));
-        assert_eq!(seed_embedded(&dst, &[("three", &text)]).unwrap(), 1);
-        assert_eq!(list_skills(&dst).len(), 3);
+        save_skill(tmp.path(), &custom).unwrap();
+        let one = serialize_skill(&sample("one"));
+        let two = serialize_skill(&sample("two"));
+        assert_eq!(seed_embedded(tmp.path(), &[("one", &one), ("two", &two)]).unwrap(), 1);
+        assert_eq!(read_skill(tmp.path(), "one").unwrap().body, "custom");
+        assert_eq!(list_skills(tmp.path()).len(), 2);
+    }
+
+    #[test]
+    fn errors_are_vietnamese() {
+        let tmp = TempDir::new().unwrap();
+        assert_eq!(read_skill(tmp.path(), "abc").unwrap_err().to_string(), "Không tìm thấy skill “abc”");
+        assert_eq!(delete_skill(tmp.path(), "abc").unwrap_err().to_string(), "Không tìm thấy skill “abc”");
+        let file = tmp.path().join("file");
+        fs::write(&file, "x").unwrap();
+        let e = save_skill(&file, &sample("abc")).unwrap_err().to_string();
+        assert!(e.starts_with("Lỗi đọc/ghi skill: "), "{e}");
+    }
+
+    #[test]
+    fn unescape_mixed_and_block_scalars_and_enabled() {
+        // raw file text: description: "x \\\" y \" z \\"
+        let t = r#"---
+name: a
+description: "x \\\" y \" z \\"
+---
+"#;
+        assert_eq!(parse_skill(t).unwrap().description, r#"x \" y " z \"#);
+        let mut s = sample("a");
+        s.description = r#"a\"b\c""#.into();
+        assert_eq!(parse_skill(&serialize_skill(&s)).unwrap().description, s.description);
+        for bad in [">", "|"] {
+            let e = parse_skill(&format!("---\nname: a\ndescription: {bad}\n  x\n---\n")).unwrap_err();
+            assert!(e.to_string().contains("block scalar"));
+        }
+        for (v, want) in [("YES", true), ("0", false), ("False", false), ("1", true)] {
+            let t = format!("---\nname: a\ndescription: d\nenabled: {v}\n---\n");
+            assert_eq!(parse_skill(&t).unwrap().enabled, want);
+        }
+        assert!(parse_skill("---\nname: a\ndescription: d\nenabled: maybe\n---\n").is_err());
     }
 }

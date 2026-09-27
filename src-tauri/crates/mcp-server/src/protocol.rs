@@ -92,7 +92,7 @@ pub fn tool_definitions() -> Value {
             },
             {
                 "name": "list_skills",
-                "description": "Liệt kê các Agent Skill (name, description, enabled) của DNT Note.",
+                "description": "Liệt kê tất cả Agent Skill của DNT Note (gồm cả skill đang tắt). Mỗi mục có name, description, enabled (true/false) — chỉ nên dùng skill có enabled=true.",
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
