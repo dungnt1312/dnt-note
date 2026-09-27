@@ -177,6 +177,7 @@ body {
 input:focus-visible,
 textarea:focus-visible,
 .cm-editor :focus-visible,
+[contenteditable="true"]:focus-visible,
 [role="menuitem"]:focus-visible,
 [role="menuitemradio"]:focus-visible,
 [role="option"]:focus-visible {
