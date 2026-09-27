@@ -20,6 +20,7 @@ vi.mock("../api/notes", () => ({
 
 import { api } from "../api/notes";
 import { useNotesStore } from "./notesStore";
+import { useUi } from "./uiStore";
 
 const mocked = vi.mocked(api.notes, true);
 
@@ -118,6 +119,44 @@ describe("notesStore autosave", () => {
     expect(mocked.update).not.toHaveBeenCalledWith("n2", expect.anything());
     expect(mocked.snapshot).toHaveBeenCalledWith("n1");
     expect(useNotesStore.getState()).toMatchObject({ selectedId: "n2", body: "body of n2" });
+  });
+
+  it("select() clears body synchronously so nothing can be typed into the old note", async () => {
+    const s = useNotesStore.getState();
+    await s.select("n1");
+    s.setBody("draft A");
+    const p = s.select("n2");
+    expect(useNotesStore.getState()).toMatchObject({ selectedId: "n2", body: null });
+    await p;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mocked.update).toHaveBeenCalledTimes(1);
+    expect(mocked.update).toHaveBeenCalledWith("n1", { body: "draft A" });
+    expect(mocked.update).not.toHaveBeenCalledWith("n2", expect.anything());
+  });
+
+  it("rapid A→B→C ends on C even when B's read resolves last", async () => {
+    const s = useNotesStore.getState();
+    await s.select("n1");
+    let releaseB!: () => void;
+    mocked.read.mockImplementationOnce(
+      (id: string) =>
+        new Promise((r) => (releaseB = () => r({ id, title: "", tags: [], pinned: false, created: "", updated: "", snippet: "", wordCount: 0, body: `body of ${id}` }))),
+    );
+    const pb = s.select("n2");
+    await vi.advanceTimersByTimeAsync(0);
+    await s.select("n3");
+    releaseB();
+    await pb;
+    expect(useNotesStore.getState()).toMatchObject({ selectedId: "n3", body: "body of n3" });
+  });
+
+  it("select() handles read failure with a toast", async () => {
+    const pushToast = vi.fn();
+    useUi.setState({ pushToast });
+    mocked.read.mockRejectedValueOnce("mất file");
+    await useNotesStore.getState().select("n1");
+    expect(useNotesStore.getState()).toMatchObject({ selectedId: "n1", body: null });
+    expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Không mở được ghi chú") }));
   });
 
   it("reloadBody() replaces the open body and marks it saved", async () => {

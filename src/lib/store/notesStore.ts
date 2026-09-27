@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { api, type NoteMeta, type TagCount } from "../api/notes";
 import { debounce } from "../debounce";
+import { errMsg } from "../utils";
+import { useUi } from "./uiStore";
 
 export type SaveState = "saved" | "dirty" | "saving";
 
@@ -30,29 +32,31 @@ interface NotesState {
 const AUTOSAVE_MS = 600;
 
 // Module-level debounced saver — one editor is open at a time.
-const scheduleSave = debounce((body: string) => {
-  persistBody(body).catch(() => {});
+// The note id is captured when scheduling, so a save can never land in another note.
+const scheduleSave = debounce((id: string, body: string) => {
+  persistBody(id, body).catch(() => {});
 }, AUTOSAVE_MS);
 
 let inFlight: Promise<void> | null = null;
+// Bumped by every select(); stale selects bail out after each await.
+let selectSeq = 0;
 
-/** Write `body` to the selected note; rejects on failure (state goes back to dirty). */
-function persistBody(body: string): Promise<void> {
-  const { selectedId } = useNotesStore.getState();
-  if (!selectedId) return Promise.resolve();
-  useNotesStore.setState({ saveState: "saving" });
+/** Write `body` to note `id`; rejects on failure (state goes back to dirty if still open). */
+function persistBody(id: string, body: string): Promise<void> {
+  const isOpen = () => useNotesStore.getState().selectedId === id;
+  if (isOpen()) useNotesStore.setState({ saveState: "saving" });
   const p = (async () => {
     try {
-      await api.notes.update(selectedId, { body });
+      await api.notes.update(id, { body });
       const cur = useNotesStore.getState();
       // Edits made during the request keep the note dirty.
-      if (cur.selectedId === selectedId && cur.body === body) {
+      if (cur.selectedId === id && cur.body === body) {
         useNotesStore.setState({ saveState: "saved" });
       }
       void bumpTagRefresh();
     } catch (e) {
       console.error("autosave failed", e);
-      useNotesStore.setState({ saveState: "dirty" });
+      if (isOpen()) useNotesStore.setState({ saveState: "dirty" });
       throw e;
     }
   })();
@@ -92,20 +96,36 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   },
 
   select: async (id) => {
-    const prev = get().selectedId;
-    if (prev === id) return;
-    if (prev) {
-      // Save the previous note, then keep its session end-state in history.
-      try {
-        await get().flushSave();
-        await api.notes.snapshot(prev);
-      } catch (e) {
-        console.error("leaving note failed", e);
-      }
-    }
+    const { selectedId: prevId, body: prevBody, saveState: prevState } = get();
+    if (prevId === id) return;
+    const seq = ++selectSeq;
     scheduleSave.cancel();
-    const note = await api.notes.read(id);
-    set({ selectedId: id, body: note.body, saveState: "saved" });
+    // body null unmounts the editor, so nothing can be typed mid-switch.
+    set({ selectedId: id, body: null, saveState: "saved" });
+    const toast = useUi.getState().pushToast;
+    if (prevId) {
+      if (prevBody !== null && prevState !== "saved") {
+        try {
+          if (inFlight) await inFlight;
+          await api.notes.update(prevId, { body: prevBody });
+        } catch (e) {
+          console.error("save before switch failed", e);
+          toast({ message: `Không lưu được ghi chú: ${errMsg(e)}`, durationMs: 5000 });
+        }
+      }
+      // Keep the finished session in history (best-effort).
+      api.notes.snapshot(prevId).catch((e) => console.error("snapshot failed", e));
+      if (seq !== selectSeq) return;
+    }
+    try {
+      const note = await api.notes.read(id);
+      if (seq !== selectSeq) return;
+      set({ body: note.body, saveState: "saved" });
+    } catch (e) {
+      if (seq !== selectSeq) return;
+      set({ body: null, saveState: "saved" });
+      toast({ message: `Không mở được ghi chú: ${errMsg(e)}`, durationMs: 5000 });
+    }
   },
 
   create: async () => {
@@ -187,15 +207,17 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   },
 
   setBody: (body) => {
+    const id = get().selectedId;
+    if (!id) return;
     set({ body, saveState: "dirty" });
-    scheduleSave(body);
+    scheduleSave(id, body);
   },
 
   flushSave: async () => {
     scheduleSave.cancel();
     if (inFlight) await inFlight;
     const { saveState, body, selectedId } = get();
-    if (selectedId && body !== null && saveState !== "saved") await persistBody(body);
+    if (selectedId && body !== null && saveState !== "saved") await persistBody(selectedId, body);
   },
 
   reloadBody: async (id) => {
