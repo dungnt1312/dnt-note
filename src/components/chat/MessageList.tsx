@@ -11,6 +11,7 @@ import {
   FileText,
   FilePlus2,
   Paperclip,
+  Zap,
   Pencil,
   RotateCcw,
   Search,
@@ -226,6 +227,19 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
             >
               <FileText size={11} aria-hidden="true" />
               {m.title}
+            </span>
+          ))}
+        </div>
+      )}
+      {message.skills && message.skills.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1">
+          {message.skills.map((n) => (
+            <span
+              key={n}
+              className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary"
+            >
+              <Zap size={11} aria-hidden="true" />
+              {n}
             </span>
           ))}
         </div>

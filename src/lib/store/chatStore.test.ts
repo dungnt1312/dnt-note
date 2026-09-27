@@ -24,7 +24,8 @@ vi.mock("../api/notes", () => ({
   },
 }));
 
-import { runAgent } from "../agent/engine";
+import { runAgent, buildSystemPrompt } from "../agent/engine";
+import { useSkillsStore } from "./skillsStore";
 import { api } from "../api/chats";
 import { useChatStore, newId, buildUserContent } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
@@ -152,6 +153,25 @@ describe("chatStore", () => {
     expect(useChatStore.getState().messages[0].files).toEqual([{ name: "u-a.png", kind: "image" }]);
   });
 
+  it("retryLast resends the same skills and system prompt gets enabled skills", async () => {
+    runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
+    useSkillsStore.setState({
+      skills: [
+        { name: "a", description: "A", enabled: true },
+        { name: "b", description: "B", enabled: false },
+      ],
+      loaded: true,
+    });
+    await useChatStore.getState().send("làm", [], [], [{ name: "a", body: "HD" }]);
+    await useChatStore.getState().retryLast();
+    const last = runAgentMock.mock.calls[1][0].messages.at(-1);
+    expect(last?.content).toBe("[Skill: a]\nHD\n---\nlàm");
+    expect(useChatStore.getState().messages[0].skills).toEqual(["a"]);
+    expect(vi.mocked(buildSystemPrompt).mock.calls.at(-1)?.[3]).toEqual([{ name: "a", description: "A" }]);
+    const saved = saveMock.mock.calls.at(-1)?.[0];
+    expect(saved?.messages[0].content).toBe("làm\n\n[⚡ a]");
+  });
+
   it("newChat/loadChat clear retry context so files are not resent", async () => {
     runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
     await useChatStore.getState().send("a", [{ id: "n", title: "T", body: "b" }], [
@@ -227,6 +247,12 @@ describe("buildUserContent", () => {
       { type: "text", text: "xem" },
       { type: "image_url", image_url: { url: "data:image/png;base64,AA" } },
     ]);
+  });
+
+  it("prefixes skill bodies before the user text", () => {
+    expect(buildUserContent("hi", [], [], [{ name: "x", body: "B1" }, { name: "y", body: "B2" }])).toBe(
+      "[Skill: x]\nB1\n---\n[Skill: y]\nB2\n---\nhi",
+    );
   });
 
   it("returns the text unchanged with nothing attached", () => {

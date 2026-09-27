@@ -39,11 +39,12 @@ export function buildSystemPrompt(
   stats: StatsDto,
   currentNoteId: string | null,
   currentNoteTitle: string | null,
+  skills: { name: string; description: string }[] = [],
 ): string {
   const current = currentNoteId
     ? `Ghi chú đang mở: "${currentNoteTitle}" (id: ${currentNoteId}).`
     : "Không có ghi chú nào đang mở.";
-  return [
+  const lines = [
     "Bạn là trợ lý AI bên trong ứng dụng ghi chú DNT Note. Bạn có thể trực tiếp thao tác với ghi chú của người dùng qua các tool được cung cấp.",
     `Thống kê hiện tại: ${stats.total} ghi chú, ${stats.pinned} đã ghim, ${stats.tags} tags.`,
     current,
@@ -52,7 +53,12 @@ export function buildSystemPrompt(
     "- delete_note KHÔNG xóa ngay: hệ thống sẽ hiện thẻ xác nhận cho người dùng. Hãy nói rõ điều đó.",
     "- Trả lời bằng markdown ngắn gọn, tiếng Việt theo ngôn ngữ của người dùng.",
     "- Khi tạo/sửa ghi chú, dùng markdown có cấu trúc (heading, list).",
-  ].join("\n");
+  ];
+  if (skills.length) {
+    lines.push("Skills khả dụng (gọi load_skill để nạp hướng dẫn đầy đủ trước khi làm theo):");
+    for (const sk of skills) lines.push(`- ${sk.name}: ${sk.description}`);
+  }
+  return lines.join("\n");
 }
 
 /** Core agent loop: stream → (tool calls → execute → append result → repeat). */

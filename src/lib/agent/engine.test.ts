@@ -37,6 +37,19 @@ describe("buildSystemPrompt", () => {
   });
 });
 
+describe("buildSystemPrompt skills", () => {
+  const stats = { total: 1, pinned: 0, words: 0, tags: 0 };
+  it("omits the skills section when empty", () => {
+    expect(buildSystemPrompt(stats, null, null)).not.toContain("Skills khả dụng");
+  });
+  it("lists skills and instructs load_skill", () => {
+    const p = buildSystemPrompt(stats, null, null, [{ name: "tom-tat", description: "Tóm tắt" }]);
+    expect(p).toContain("Skills khả dụng");
+    expect(p).toContain("load_skill");
+    expect(p).toContain("- tom-tat: Tóm tắt");
+  });
+});
+
 describe("runAgent", () => {
   it("loops: stream → tool call → tool result → final text", async () => {
     streamChatMock

@@ -2,6 +2,7 @@ import { api, type NotePatchDto } from "../api/notes";
 import type { ToolSchema } from "../llm/openai";
 import { mediaApi } from "../api/media";
 import { attachmentsApi } from "../api/attachments";
+import { skillsApi } from "../api/skills";
 import { MAX_DOC_CHARS, joinAttachmentPath } from "../media/paths";
 
 export const MAX_ATTACHMENT_TEXT = MAX_DOC_CHARS;
@@ -100,6 +101,11 @@ export const AGENT_TOOLS: ToolSchema[] = [
     properties: { name: { type: "string", description: "Tên file lưu trữ" } },
     required: ["name"],
   }),
+  fn("load_skill", "Nạp hướng dẫn đầy đủ (SKILL.md) của một skill trong danh sách Skills khả dụng.", {
+    type: "object",
+    properties: { name: { type: "string", description: "Tên skill" } },
+    required: ["name"],
+  }),
 ];
 
 function fn(name: string, description: string, parameters: Record<string, unknown>): ToolSchema {
@@ -176,6 +182,13 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
           text: truncated ? text.slice(0, MAX_ATTACHMENT_TEXT) : text,
           truncated,
         });
+      }
+      case "load_skill": {
+        const skillName = args.name ?? "";
+        if (!skillName) return JSON.stringify({ error: "Thiếu tên skill" });
+        const skill = await skillsApi.read(skillName);
+        if (!skill.enabled) return JSON.stringify({ error: `Skill "${skillName}" đang bị tắt` });
+        return JSON.stringify({ name: skill.name, body: skill.body });
       }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });

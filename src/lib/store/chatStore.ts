@@ -3,6 +3,7 @@ import { runAgent, buildSystemPrompt, type AgentEvent } from "../agent/engine";
 import { useSettingsStore } from "./settingsStore";
 import { useNotesStore } from "./notesStore";
 import { useUi } from "./uiStore";
+import { useSkillsStore } from "./skillsStore";
 import { api, type ChatMetaDto, type ChatSessionDto } from "../api/chats";
 import type { ContentPart } from "../llm/openai";
 import { MAX_DOC_CHARS } from "../media/paths";
@@ -26,12 +27,14 @@ export interface UiMessage {
   content: string;
   mentions?: UiMention[];
   files?: UiFile[];
+  skills?: string[];
   toolCalls?: UiToolCall[];
   pendingDelete?: { id: string; title: string; status: "pending" | "confirmed" | "cancelled" };
   error?: string;
 }
 
 export type MentionInput = { id: string; title: string; body: string };
+export type SkillInput = { name: string; body: string };
 
 export interface UiFile {
   name: string;
@@ -50,7 +53,7 @@ interface ChatState {
   status: "idle" | "streaming";
   error: string | null;
   sessions: ChatMetaDto[];
-  send: (text: string, mentions: MentionInput[], files?: ChatFileInput[]) => Promise<void>;
+  send: (text: string, mentions: MentionInput[], files?: ChatFileInput[], skills?: SkillInput[]) => Promise<void>;
   /** Drop the last exchange and send the same user message again. */
   retryLast: () => Promise<void>;
   confirmDelete: (noteId: string) => Promise<void>;
@@ -73,10 +76,12 @@ let controller: AbortController | null = null;
 /** Mention bodies of the last send, so "retry" can rebuild the same context. */
 let lastMentions: MentionInput[] = [];
 let lastFiles: ChatFileInput[] = [];
+let lastSkills: SkillInput[] = [];
 
 function resetRetryContext(): void {
   lastMentions = [];
   lastFiles = [];
+  lastSkills = [];
 }
 
 /** Build the model-facing user content: text + mention/doc context, plus image parts when present. */
@@ -84,8 +89,9 @@ export function buildUserContent(
   text: string,
   mentions: MentionInput[],
   files: ChatFileInput[] = [],
+  skills: SkillInput[] = [],
 ): string | ContentPart[] {
-  let out = text;
+  let out = skills.map((sk) => `[Skill: ${sk.name}]\n${sk.body}\n---\n`).join("") + text;
   for (const m of mentions) {
     const body = m.body.length > MAX_CONTEXT_CHARS ? `${m.body.slice(0, MAX_CONTEXT_CHARS)}…` : m.body;
     out += `\n\n[@${m.title}]\n---\n${body}`;
@@ -105,8 +111,11 @@ export function buildUserContent(
 
 /** Plain-text content persisted for a user message (no base64). */
 function persistedUserText(m: UiMessage): string {
-  if (!m.files?.length) return m.content;
-  const markers = m.files.map((f) => `[📎 ${f.name}]`).join(" ");
+  const markers = [
+    ...(m.skills ?? []).map((n) => `[⚡ ${n}]`),
+    ...(m.files ?? []).map((f) => `[📎 ${f.name}]`),
+  ].join(" ");
+  if (!markers) return m.content;
   return m.content ? `${m.content}\n\n${markers}` : markers;
 }
 
@@ -144,7 +153,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   error: null,
   sessions: [],
 
-  send: async (text, mentions, files = []) => {
+  send: async (text, mentions, files = [], skills = []) => {
     if (get().status === "streaming" || (!text.trim() && files.length === 0)) return;
     const provider = useSettingsStore.getState().activeProvider();
     if (!provider) {
@@ -153,7 +162,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }
     lastMentions = mentions;
     lastFiles = files;
-    const userContent = buildUserContent(text, mentions, files);
+    lastSkills = skills;
+    const userContent = buildUserContent(text, mentions, files, skills);
 
     const userMsg: UiMessage = {
       id: newId(),
@@ -161,6 +171,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       content: text,
       mentions: mentions.length ? mentions.map(({ id, title }) => ({ id, title })) : undefined,
       files: files.length ? files.map(({ name, kind }) => ({ name, kind })) : undefined,
+      skills: skills.length ? skills.map((sk) => sk.name) : undefined,
     };
     const assistantId = newId();
     const assistantMsg: UiMessage = { id: assistantId, role: "assistant", content: "" };
@@ -232,7 +243,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       await runAgent({
         provider,
         messages: [...history, { role: "user", content: userContent }],
-        systemPrompt: buildSystemPrompt(stats, selectedId, selectedTitle),
+        systemPrompt: buildSystemPrompt(
+          stats,
+          selectedId,
+          selectedTitle,
+          useSkillsStore
+            .getState()
+            .skills.filter((sk) => sk.enabled)
+            .map(({ name, description }) => ({ name, description })),
+        ),
         signal: controller.signal,
         onEvent: handleEvent,
       });
@@ -264,7 +283,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     if (lastUserIdx < 0) return;
     const text = messages[lastUserIdx].content;
     set({ messages: messages.slice(0, lastUserIdx) });
-    await get().send(text, lastMentions, lastFiles);
+    await get().send(text, lastMentions, lastFiles, lastSkills);
   },
 
   confirmDelete: async (noteId) => {

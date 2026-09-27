@@ -26,6 +26,15 @@ vi.mock("../api/media", () => ({
     dirPath: vi.fn(async () => "C:\\data\\attachments"),
   },
 }));
+vi.mock("../api/skills", () => ({
+  skillsApi: {
+    read: vi.fn(async (name: string) => {
+      if (name === "off") return { name, description: "", enabled: false, body: "x" };
+      if (name === "ok") return { name, description: "d", enabled: true, body: "BODY" };
+      throw "Không tìm thấy skill";
+    }),
+  },
+}));
 vi.mock("../api/attachments", () => ({
   attachmentsApi: { extractText: vi.fn(async () => "x".repeat(25000)) },
 }));
@@ -41,9 +50,9 @@ describe("AGENT_TOOLS", () => {
   const expected = [
     "list_notes", "search_notes", "read_note", "create_note", "update_note",
     "delete_note", "get_stats", "list_tags", "set_tags", "get_recent_notes",
-    "list_media", "read_attachment",
+    "list_media", "read_attachment", "load_skill",
   ];
-  it("has exactly the 12 tools with descriptions and object parameters", () => {
+  it("has exactly the 13 tools with descriptions and object parameters", () => {
     expect(AGENT_TOOLS.map((t) => t.function.name).sort()).toEqual([...expected].sort());
     for (const t of AGENT_TOOLS) {
       expect(t.type).toBe("function");
@@ -55,6 +64,14 @@ describe("AGENT_TOOLS", () => {
 
 describe("executeTool", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("load_skill returns body, errors when disabled or missing", async () => {
+    expect(JSON.parse(await executeTool("load_skill", { name: "ok" }))).toEqual({ name: "ok", body: "BODY" });
+    expect(JSON.parse(await executeTool("load_skill", { name: "off" })).error).toBeTruthy();
+    expect(JSON.parse(await executeTool("load_skill", { name: "nope" })).error).toBeTruthy();
+    const schema = AGENT_TOOLS.find((t) => t.function.name === "load_skill");
+    expect(schema?.function.parameters).toMatchObject({ required: ["name"] });
+  });
 
   it("list_media maps usedBy to titles", async () => {
     const out = JSON.parse(await executeTool("list_media", {}));

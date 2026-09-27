@@ -16,6 +16,7 @@ import { useChatStore } from "./lib/store/chatStore";
 import { useSettingsStore } from "./lib/store/settingsStore";
 import { useUi } from "./lib/store/uiStore";
 import { useMediaStore } from "./lib/store/mediaStore";
+import { useSkillsStore } from "./lib/store/skillsStore";
 import { MediaLibrary } from "./components/media/MediaLibrary";
 
 function useDeepLinkAndSync() {
@@ -171,6 +172,7 @@ function Shell() {
     void initAttachmentsDir();
     void ensureLlmFetch();
     void useSettingsStore.getState().loadStore();
+    void useSkillsStore.getState().load();
   }, [load]);
 
   return (

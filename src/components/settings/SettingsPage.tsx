@@ -11,6 +11,7 @@ import { ContentHeader } from "../layout/ContentHeader";
 import { Keycap, SecondaryButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
 import { ProvidersSection } from "./ProvidersSection";
+import { SkillsSection } from "./SkillsSection";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -273,6 +274,12 @@ export function SettingsPage() {
             description="Mọi dịch vụ tương thích OpenAI (OpenAI, Ollama, OpenRouter, Groq, vLLM…). API key chỉ lưu trên máy này."
           >
             <ProvidersSection />
+          </Section>
+          <Section
+            title="Skills"
+            description="Hướng dẫn chuyên biệt để trợ lý làm theo — định dạng Agent Skills (SKILL.md). Gõ / trong khung chat để dùng."
+          >
+            <SkillsSection />
           </Section>
           <DataSection />
           <ShortcutsSection />

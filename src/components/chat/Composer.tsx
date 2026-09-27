@@ -1,7 +1,9 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ArrowUp, AtSign, FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
+import { ArrowUp, AtSign, FileText, Loader2, Paperclip, Plus, X, Zap } from "lucide-react";
 import { useChatStore, type ChatFileInput } from "../../lib/store/chatStore";
 import { useUi } from "../../lib/store/uiStore";
+import { useSkillsStore } from "../../lib/store/skillsStore";
+import type { SkillMeta } from "../../lib/api/skills";
 import { isTauri } from "../../lib/env";
 import { ATTACHABLE } from "../../lib/media/extensions";
 import {
@@ -24,6 +26,15 @@ export function mentionQuery(text: string, caret: number): string | null {
   return m ? m[1] : null;
 }
 
+/** Detects an active /skill query right before the caret. */
+export function slashQuery(text: string, caret: number): string | null {
+  const before = text.slice(0, caret);
+  const m = /(?:^|\s)\/([^\s/]*)$/.exec(before);
+  return m ? m[1] : null;
+}
+
+export const MAX_COMPOSER_SKILLS = 3;
+
 export interface ComposerHandle {
   focus: () => void;
   setText: (text: string) => void;
@@ -43,6 +54,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const status = useChatStore((s) => s.status);
   const notes = useNotesStore((s) => s.notes);
   const selectedId = useNotesStore((s) => s.selectedId);
+  const allSkills = useSkillsStore((s) => s.skills);
+  const [skills, setSkills] = useState<string[]>([]);
 
   const [draft, setDraft] = useState("");
   const [mentions, setMentions] = useState<Mention[]>([]);
@@ -120,7 +133,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       .slice(0, 8)
       .map((r) => r.item);
   }, [query, notes]);
-  const menuOpen = candidates.length > 0;
+  const sQuery = dismissed || query !== null ? null : slashQuery(draft, caret);
+  const skillCandidates: SkillMeta[] = useMemo(() => {
+    if (sQuery === null) return [];
+    const enabled = allSkills.filter((sk) => sk.enabled && !skills.includes(sk.name));
+    return fuzzyRank(enabled, sQuery, (sk) => `${sk.name} ${sk.description}`)
+      .slice(0, 8)
+      .map((r) => r.item);
+  }, [sQuery, allSkills, skills]);
+  const menuMode: "mention" | "skill" | null =
+    candidates.length > 0 ? "mention" : skillCandidates.length > 0 ? "skill" : null;
+  const menuOpen = menuMode !== null;
+  const menuCount = menuMode === "mention" ? candidates.length : skillCandidates.length;
+
+  const insertSkill = (sk: SkillMeta) => {
+    if (skills.length >= MAX_COMPOSER_SKILLS) {
+      useUi.getState().pushToast({ message: `Tối đa ${MAX_COMPOSER_SKILLS} skill mỗi tin nhắn`, durationMs: 4000 });
+      return;
+    }
+    const before = draft.slice(0, caret).replace(/\/([^\s/]*)$/, "");
+    const next = before + draft.slice(caret);
+    setDraft(next);
+    setSkills((all) => (all.includes(sk.name) ? all : [...all, sk.name]));
+    setCursor(0);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      el?.focus();
+      el?.setSelectionRange(before.length, before.length);
+      setCaret(before.length);
+    });
+  };
+
+  const pickMenu = (i: number) => {
+    if (menuMode === "mention") insertMention(candidates[i]);
+    else if (menuMode === "skill") insertSkill(skillCandidates[i]);
+  };
 
   const addMention = (note: Pick<NoteMeta, "id" | "title">) =>
     setMentions((m) => (m.some((x) => x.id === note.id) ? m : [...m, { id: note.id, title: note.title }]));
@@ -162,8 +209,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if ((!text && files.length === 0) || status === "streaming" || preparing > 0) return;
     const pending = mentions;
     const pendingFiles = files;
+    const pendingSkills = skills;
     setDraft("");
     setMentions([]);
+    setSkills([]);
     setFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     const { api } = await import("../../lib/api/notes");
@@ -177,7 +226,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         }
       }),
     );
-    await send(text, resolved, pendingFiles);
+    const resolvedSkills: { name: string; body: string }[] = [];
+    if (pendingSkills.length) {
+      const { skillsApi } = await import("../../lib/api/skills");
+      for (const name of pendingSkills) {
+        try {
+          resolvedSkills.push({ name, body: (await skillsApi.read(name)).body });
+        } catch (e) {
+          useUi.getState().pushToast({ message: `Không đọc được skill ${name}: ${errMsg(e)}`, durationMs: 5000 });
+        }
+      }
+    }
+    await send(text, resolved, pendingFiles, resolvedSkills);
   };
 
   const current = notes.find((n) => n.id === selectedId);
@@ -203,7 +263,38 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         addSources(dropped);
       }}
     >
-      {menuOpen && (
+      {menuMode === "skill" && (
+        <div
+          role="listbox"
+          id="mention-list"
+          aria-label="Chọn skill"
+          className="absolute bottom-full left-0 right-0 mb-2 max-h-[300px] overflow-y-auto rounded-[16px] border border-composer-border bg-popover p-1.5 shadow-popover"
+        >
+          <div className="px-2.5 pb-1 pt-1 text-caption font-medium text-fg-secondary">Dùng skill</div>
+          {skillCandidates.map((sk, i) => (
+            <button
+              key={sk.name}
+              type="button"
+              role="option"
+              aria-selected={i === cursor}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setCursor(i)}
+              onClick={() => insertSkill(sk)}
+              className={cn(
+                "flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-left",
+                i === cursor && "bg-hover",
+              )}
+            >
+              <Zap size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-callout font-medium text-fg">{sk.name}</span>
+                <span className="block truncate text-caption text-fg-secondary">{sk.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {menuMode === "mention" && (
         <div
           role="listbox"
           id="mention-list"
@@ -231,6 +322,28 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <span className="block truncate text-caption text-fg-secondary">{n.snippet || "Chưa có nội dung"}</span>
               </span>
             </button>
+          ))}
+        </div>
+      )}
+
+      {skills.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+          {skills.map((name) => (
+            <span
+              key={name}
+              className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[10px] border border-composer-border bg-control pl-2 pr-1 text-footnote text-fg"
+            >
+              <Zap size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />
+              <span className="truncate">{name}</span>
+              <button
+                type="button"
+                aria-label={`Bỏ skill ${name}`}
+                onClick={() => setSkills((all) => all.filter((x) => x !== name))}
+                className="flex size-5 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
+              >
+                <X size={11} aria-hidden="true" />
+              </button>
+            </span>
           ))}
         </div>
       )}
@@ -322,13 +435,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           if (menuOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
             e.preventDefault();
             setCursor((c) =>
-              e.key === "ArrowDown" ? (c + 1) % candidates.length : (c - 1 + candidates.length) % candidates.length,
+              e.key === "ArrowDown" ? (c + 1) % menuCount : (c - 1 + menuCount) % menuCount,
             );
             return;
           }
           if (menuOpen && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
             e.preventDefault();
-            insertMention(candidates[cursor]);
+            pickMenu(cursor);
             return;
           }
           if (menuOpen && e.key === "Escape") {
