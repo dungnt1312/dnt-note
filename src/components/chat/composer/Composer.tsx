@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ArrowUp, AtSign, Paperclip } from "lucide-react";
 import {
@@ -21,7 +21,7 @@ import { cn } from "../../../lib/utils";
 import { ChatInput } from "./ChatInput";
 import { MentionPlugin } from "./MentionPlugin";
 import { AttachmentTray } from "./AttachmentTray";
-import { ContextTokenNode } from "./ContextTokenNode";
+import { ContextTokenNode, appendNoteToken } from "./ContextTokenNode";
 
 export interface ComposerHandle {
   focus: () => void;
@@ -64,6 +64,24 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const editorRef = useRef<LexicalEditor | null>(null);
   const menuOpenRef = useRef(false);
   const [text, setTextState] = useState(draft?.text ?? "");
+
+  const pendingContext = useComposerStore((s) => s.pendingContext);
+  const takeChatContext = useComposerStore((s) => s.takeChatContext);
+  const addSnippet = useComposerStore((s) => s.addSnippet);
+
+  // One-shot handoff from the note editor's right-click menu: a snippet becomes
+  // a virtual attachment, a note becomes an @token; then focus the composer.
+  useEffect(() => {
+    if (!pendingContext) return;
+    const ctx = takeChatContext();
+    if (!ctx) return;
+    if (ctx.kind === "snippet") {
+      addSnippet(chatId, { originalName: ctx.title, text: ctx.text });
+    } else if (editorRef.current) {
+      appendNoteToken(editorRef.current, { id: ctx.noteId, title: ctx.title });
+    }
+    editorRef.current?.focus();
+  }, [pendingContext, chatId, takeChatContext, addSnippet]);
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),

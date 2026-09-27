@@ -1,8 +1,11 @@
 import {
   $applyNodeReplacement,
+  $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
   $getSelection,
+  $getRoot,
+  $isParagraphNode,
   $isRangeSelection,
   $setSelection,
   DecoratorNode,
@@ -149,6 +152,38 @@ export function insertNoteTokenAtCaret(editor: LexicalEditor, note: { id: string
       newSel.anchor.set(space.getKey(), 1, "text");
       newSel.focus.set(space.getKey(), 1, "text");
       $setSelection(newSel);
+    },
+    { discrete: true },
+  );
+}
+
+/**
+ * Append a note token + space at the end of the composer text (used by the
+ * right-click "ask AI about this note" flow, where there is no caret yet) and
+ * place the selection after the space so typing continues naturally.
+ */
+export function appendNoteToken(editor: LexicalEditor, note: { id: string; title: string }): void {
+  editor.update(
+    () => {
+      const root = $getRoot();
+      let p = root.getLastChild();
+      if (!$isParagraphNode(p)) {
+        p = $createParagraphNode();
+        root.append(p);
+      }
+      const last = p.getLastDescendant();
+      if (last instanceof TextNode && !/\s$/.test(last.getTextContent())) {
+        p.append($createTextNode(" "));
+      }
+      const token = $createContextTokenNode({ kind: "note", id: note.id, label: note.title });
+      const space = $createTextNode(" ");
+      p.append(token);
+      token.insertAfter(space);
+
+      const sel = $createRangeSelection();
+      sel.anchor.set(space.getKey(), 1, "text");
+      sel.focus.set(space.getKey(), 1, "text");
+      $setSelection(sel);
     },
     { discrete: true },
   );

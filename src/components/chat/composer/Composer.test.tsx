@@ -18,7 +18,7 @@ beforeEach(() => {
   invoke.mockReset();
   openDialog.mockReset();
   useNotesStore.setState({ notes: [], selectedId: null, tags: [] });
-  useComposerStore.setState({ drafts: {} });
+  useComposerStore.setState({ drafts: {}, pendingContext: null });
   useChatStore.setState({ status: "idle", error: null });
 });
 
@@ -89,5 +89,23 @@ describe("Composer", () => {
     render(<Composer placeholder="Hỏi…" />);
     expect(screen.getByRole("button", { name: "Dừng tạo câu trả lời" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Gửi (Enter)" })).toBeNull();
+  });
+
+  it("consumes a pending snippet into the attachment tray", async () => {
+    render(<Composer placeholder="Hỏi…" />);
+    useComposerStore
+      .getState()
+      .pushChatContext({ kind: "snippet", title: "Ghi chú A (đoạn chọn).md", text: "nội dung đoạn" });
+    await waitFor(() =>
+      expect(screen.getByRole("listitem", { name: "Ghi chú A (đoạn chọn).md" })).toBeTruthy(),
+    );
+    expect(useComposerStore.getState().pendingContext).toBeNull();
+  });
+
+  it("consumes a pending note mention as an @token chip", async () => {
+    render(<Composer placeholder="Hỏi…" />);
+    useComposerStore.getState().pushChatContext({ kind: "note", noteId: "n1", title: "Ghi chú B" });
+    await waitFor(() => expect(screen.getByText("Ghi chú B")).toBeTruthy());
+    expect(useComposerStore.getState().pendingContext).toBeNull();
   });
 });
