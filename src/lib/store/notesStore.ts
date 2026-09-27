@@ -40,6 +40,8 @@ const scheduleSave = debounce((id: string, body: string) => {
 let inFlight: Promise<void> | null = null;
 // Bumped by every select(); stale selects bail out after each await.
 let selectSeq = 0;
+// Saves issued while leaving a note; reopening that note waits for them.
+const pendingSwitchSaves = new Map<string, Promise<void>>();
 
 /** Write `body` to note `id`; rejects on failure (state goes back to dirty if still open). */
 function persistBody(id: string, body: string): Promise<void> {
@@ -105,9 +107,16 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const toast = useUi.getState().pushToast;
     if (prevId) {
       if (prevBody !== null && prevState !== "saved") {
-        try {
+        const save = (async () => {
           if (inFlight) await inFlight;
           await api.notes.update(prevId, { body: prevBody });
+        })();
+        const tracked = save.catch(() => {}).finally(() => {
+          if (pendingSwitchSaves.get(prevId) === tracked) pendingSwitchSaves.delete(prevId);
+        });
+        pendingSwitchSaves.set(prevId, tracked);
+        try {
+          await save;
         } catch (e) {
           console.error("save before switch failed", e);
           toast({ message: `Không lưu được ghi chú: ${errMsg(e)}`, durationMs: 5000 });
@@ -118,6 +127,9 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       if (seq !== selectSeq) return;
     }
     try {
+      const pending = pendingSwitchSaves.get(id);
+      if (pending) await pending;
+      if (seq !== selectSeq) return;
       const note = await api.notes.read(id);
       if (seq !== selectSeq) return;
       set({ body: note.body, saveState: "saved" });

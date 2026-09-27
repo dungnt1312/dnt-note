@@ -150,6 +150,30 @@ describe("notesStore autosave", () => {
     expect(useNotesStore.getState()).toMatchObject({ selectedId: "n3", body: "body of n3" });
   });
 
+  it("A→B→A waits for A's switch-save before re-reading A", async () => {
+    const disk: Record<string, string> = { n1: "old A", n2: "B" };
+    mocked.read.mockImplementation(async (id: string) => ({ id, title: "", tags: [], pinned: false, created: "", updated: "", snippet: "", wordCount: 0, body: disk[id] }));
+    const s = useNotesStore.getState();
+    await s.select("n1");
+    let release!: () => void;
+    mocked.update.mockImplementationOnce(
+      (id: string, patch: unknown) =>
+        new Promise((r) => (release = () => {
+          disk[id] = (patch as { body: string }).body;
+          r({} as never);
+        })),
+    );
+    s.setBody("draft A");
+    const toB = s.select("n2");
+    await vi.advanceTimersByTimeAsync(0);
+    const backToA = s.select("n1");
+    await vi.advanceTimersByTimeAsync(0);
+    release();
+    await Promise.all([toB, backToA]);
+    expect(useNotesStore.getState()).toMatchObject({ selectedId: "n1", body: "draft A", saveState: "saved" });
+    mocked.read.mockImplementation(async (id: string) => ({ id, title: "First", tags: [], pinned: false, created: "", updated: "", snippet: "", wordCount: 0, body: `body of ${id}` }));
+  });
+
   it("select() handles read failure with a toast", async () => {
     const pushToast = vi.fn();
     useUi.setState({ pushToast });
