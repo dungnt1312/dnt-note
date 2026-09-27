@@ -271,7 +271,7 @@ export function SettingsPage() {
           <AppearanceSection />
           <Section
             title="Nhà cung cấp AI"
-            description="Mọi dịch vụ tương thích OpenAI (OpenAI, Ollama, OpenRouter, Groq, vLLM…). API key chỉ lưu trên máy này."
+            description="Mọi dịch vụ tương thích OpenAI (OpenAI, Ollama, OpenRouter, Groq, vLLM…). API key được lưu trong Windows Credential Manager."
           >
             <ProvidersSection />
           </Section>

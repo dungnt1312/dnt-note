@@ -3,6 +3,7 @@ pub mod chats;
 pub mod media;
 pub mod notes;
 pub mod semantic;
+pub mod secrets;
 pub mod stats;
 pub mod sync;
 pub mod skills;
