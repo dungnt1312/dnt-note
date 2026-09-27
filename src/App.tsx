@@ -75,11 +75,25 @@ function useNoteEvents() {
   }, []);
 }
 
+/** Refresh the media list whenever the media section is entered. */
+function useMediaRefresh() {
+  useEffect(
+    () =>
+      useUi.subscribe((s, prev) => {
+        if (s.section === "media" && prev.section !== "media") {
+          void useMediaStore.getState().load().catch(() => {});
+        }
+      }),
+    [],
+  );
+}
+
 function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const ui = useUi.getState();
       if (e.key === "Escape") {
+        if (e.defaultPrevented) return;
         if (ui.section === "settings" && !ui.paletteOpen) ui.setSettingsOpen(false);
         return;
       }
@@ -128,7 +142,7 @@ function useShortcuts() {
         if (!ui.sidebarVisible) ui.toggleSidebar();
         requestAnimationFrame(() => document.getElementById("note-search")?.focus());
       });
-      if (key === "s") return run(() => void useNotesStore.getState().flushSave());
+      if (key === "s") return run(() => void useNotesStore.getState().flushSave().catch(() => {}));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -150,6 +164,7 @@ function Shell() {
   useNoteEvents();
   useDeepLinkAndSync();
   useShortcuts();
+  useMediaRefresh();
 
   useEffect(() => {
     void load();

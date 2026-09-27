@@ -4,6 +4,7 @@ import type { MediaItem } from "../../lib/api/media";
 import { mediaApi } from "../../lib/api/media";
 import { attachmentUrl } from "../../lib/media/attachmentUrl";
 import { isTauri } from "../../lib/env";
+import { errMsg } from "../../lib/utils";
 import { useMediaStore } from "../../lib/store/mediaStore";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
@@ -12,10 +13,6 @@ import { ConfirmDialog } from "../ui/Dialog";
 import { SidebarRow } from "../layout/SidebarRow";
 import { MediaIcon } from "./MediaGrid";
 import { formatSize } from "./format";
-
-function errMsg(e: unknown): string {
-  return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
-}
 
 export function mediaLink(item: MediaItem): string {
   const link = `[${item.displayName}](attachments/${encodeURI(item.name)})`;
@@ -57,8 +54,13 @@ export function MediaDetail({ item }: { item: MediaItem }) {
     const body = notes.body ?? "";
     const sep = body === "" || body.endsWith("\n\n") ? "" : body.endsWith("\n") ? "\n" : "\n\n";
     notes.setBody(`${body}${sep}${mediaLink(item)}\n`);
-    await useNotesStore.getState().flushSave();
-    pushToast({ message: "Đã chèn vào ghi chú", durationMs: 3000 });
+    try {
+      await useNotesStore.getState().flushSave();
+      pushToast({ message: "Đã chèn vào ghi chú", durationMs: 3000 });
+    } catch (e) {
+      pushToast({ message: `Không lưu được ghi chú: ${errMsg(e)}`, durationMs: 6000 });
+    }
+    void useMediaStore.getState().load().catch(() => {});
   };
 
   const openExternal = async () => {
@@ -104,6 +106,8 @@ export function MediaDetail({ item }: { item: MediaItem }) {
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
             if (e.key === "Escape") {
+              // Keep App's window-level Escape handler from leaving the section.
+              e.preventDefault();
               e.stopPropagation();
               setDraft(item.displayName);
               setRenaming(false);

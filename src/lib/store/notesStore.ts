@@ -20,31 +20,49 @@ interface NotesState {
   setPinned: (id: string, pinned: boolean) => Promise<void>;
   setTags: (id: string, tags: string[]) => Promise<void>;
   setBody: (body: string) => void;
+  /** Persist pending edits now; resolves once written, rejects if the save failed. */
   flushSave: () => Promise<void>;
   refreshTags: () => Promise<void>;
+  /** Replace the open note's body with the on-disk version (after external edits). */
+  reloadBody: (id: string) => Promise<void>;
 }
 
 const AUTOSAVE_MS = 600;
 
 // Module-level debounced saver — one editor is open at a time.
 const scheduleSave = debounce((body: string) => {
-  void persistBody(body);
+  persistBody(body).catch(() => {});
 }, AUTOSAVE_MS);
 
-async function persistBody(body: string) {
+let inFlight: Promise<void> | null = null;
+
+/** Write `body` to the selected note; rejects on failure (state goes back to dirty). */
+function persistBody(body: string): Promise<void> {
   const { selectedId } = useNotesStore.getState();
-  if (!selectedId) return;
+  if (!selectedId) return Promise.resolve();
   useNotesStore.setState({ saveState: "saving" });
-  try {
-    await api.notes.update(selectedId, { body });
-    if (useNotesStore.getState().selectedId === selectedId) {
-      useNotesStore.setState({ saveState: "saved" });
+  const p = (async () => {
+    try {
+      await api.notes.update(selectedId, { body });
+      const cur = useNotesStore.getState();
+      // Edits made during the request keep the note dirty.
+      if (cur.selectedId === selectedId && cur.body === body) {
+        useNotesStore.setState({ saveState: "saved" });
+      }
+      void bumpTagRefresh();
+    } catch (e) {
+      console.error("autosave failed", e);
+      useNotesStore.setState({ saveState: "dirty" });
+      throw e;
     }
-    await bumpTagRefresh();
-  } catch (e) {
-    console.error("autosave failed", e);
-    useNotesStore.setState({ saveState: "dirty" });
-  }
+  })();
+  const tracked: Promise<void> = p
+    .catch(() => {})
+    .finally(() => {
+      if (inFlight === tracked) inFlight = null;
+    });
+  inFlight = tracked;
+  return p;
 }
 
 let tagRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -169,7 +187,17 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   },
 
   flushSave: async () => {
-    scheduleSave.flush();
+    scheduleSave.cancel();
+    if (inFlight) await inFlight;
+    const { saveState, body, selectedId } = get();
+    if (selectedId && body !== null && saveState !== "saved") await persistBody(body);
+  },
+
+  reloadBody: async (id) => {
+    const note = await api.notes.read(id);
+    if (get().selectedId !== id) return;
+    scheduleSave.cancel();
+    set({ body: note.body, saveState: "saved" });
   },
 
   refreshTags: async () => {

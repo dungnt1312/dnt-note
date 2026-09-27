@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { mediaApi, type MediaItem } from "../api/media";
 import { isTauri } from "../env";
+import { errMsg } from "../utils";
+import { useNotesStore } from "./notesStore";
 
 export type MediaFilter = "all" | "image" | "document" | "audio" | "unused";
 
@@ -22,6 +24,26 @@ export function countMedia(items: MediaItem[]): Record<MediaFilter, number> {
   return c;
 }
 
+export interface ImportResult {
+  imported: number;
+  total: number;
+  firstError: string | null;
+}
+
+/**
+ * Run a backend op that may rewrite notes linking `name`. If the open note is one of
+ * them, save it first and reload its body afterwards so autosave can't restore stale links.
+ */
+async function withOpenNoteSync<T>(item: MediaItem | undefined, op: () => Promise<T>): Promise<T> {
+  const notes = useNotesStore.getState();
+  const openId = notes.selectedId;
+  const affected = !!openId && !!item?.usedBy.some((n) => n.id === openId);
+  if (affected) await notes.flushSave();
+  const result = await op();
+  if (affected && openId) await useNotesStore.getState().reloadBody(openId);
+  return result;
+}
+
 interface MediaState {
   items: MediaItem[];
   loading: boolean;
@@ -34,7 +56,7 @@ interface MediaState {
   select: (name: string | null) => void;
   rename: (name: string, newName: string) => Promise<void>;
   remove: (name: string, force: boolean) => Promise<void>;
-  importFiles: (paths: string[]) => Promise<number>;
+  importFiles: (paths: string[]) => Promise<ImportResult>;
 }
 
 export const useMediaStore = create<MediaState>()((set, get) => ({
@@ -63,24 +85,31 @@ export const useMediaStore = create<MediaState>()((set, get) => ({
   select: (selectedName) => set({ selectedName }),
 
   rename: async (name, newName) => {
-    const stored = await mediaApi.rename(name, newName);
+    const item = get().items.find((i) => i.name === name);
+    const stored = await withOpenNoteSync(item, () => mediaApi.rename(name, newName));
     set({ selectedName: stored });
     await get().load();
   },
   remove: async (name, force) => {
-    await mediaApi.del(name, force);
+    const item = get().items.find((i) => i.name === name);
+    await withOpenNoteSync(item, () => mediaApi.del(name, force));
     if (get().selectedName === name) set({ selectedName: null });
     await get().load();
   },
   importFiles: async (paths) => {
-    let n = 0;
+    let imported = 0;
+    let firstError: string | null = null;
     let last: string | null = null;
     for (const p of paths) {
-      last = await mediaApi.import(p);
-      n++;
+      try {
+        last = await mediaApi.import(p);
+        imported++;
+      } catch (e) {
+        firstError ??= errMsg(e);
+      }
     }
     if (last) set({ selectedName: last });
     await get().load();
-    return n;
+    return { imported, total: paths.length, firstError };
   },
 }));

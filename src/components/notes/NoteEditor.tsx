@@ -112,7 +112,7 @@ export function NoteEditor() {
         doc: body,
         extensions: editorSetup({
           onChange: (value) => onChangeRef.current(value),
-          onModS: () => void flushSave(),
+          onModS: () => void flushSave().catch(() => {}),
         }),
       }),
       parent: editorHost.current,

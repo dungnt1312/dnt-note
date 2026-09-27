@@ -256,7 +256,7 @@ function AssistantMessage({ message, isLast, busy }: { message: UiMessage; isLas
     const store = useNotesStore.getState();
     const current = store.body ?? "";
     store.setBody(`${current.replace(/\s*$/, "")}\n\n${message.content}\n`);
-    await store.flushSave();
+    await store.flushSave().catch(() => {});
     pushToast({ message: `Đã chèn vào “${selected.title}”`, durationMs: 3000 });
   };
 

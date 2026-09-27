@@ -10,6 +10,7 @@ import {
   Settings,
   SquarePen,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
@@ -23,6 +24,8 @@ import { Menu, MenuItem, MenuSeparator } from "../ui/Menu";
 import { ConfirmDialog } from "../ui/Dialog";
 import { SidebarRow, SidebarSectionLabel } from "./SidebarRow";
 import { useDeleteNote } from "../notes/useDeleteNote";
+import { isTauri } from "../../lib/env";
+import { importMediaDialog } from "../media/importMedia";
 import { countMedia, useMediaStore, type MediaFilter } from "../../lib/store/mediaStore";
 
 /** Collapse sidebar + contextual "new" button; also shown in content headers when hidden. */
@@ -45,6 +48,13 @@ export function NewItemButton() {
   const create = useNotesStore((s) => s.create);
   const newChat = useChatStore((s) => s.newChat);
   const chat = workspace === "chat";
+  if (workspace === "media") {
+    return (
+      <IconButton label="Nhập tệp…" disabled={!isTauri} onClick={() => void importMediaDialog()}>
+        <Upload size={17} strokeWidth={1.75} aria-hidden="true" />
+      </IconButton>
+    );
+  }
   return (
     <IconButton
       label={chat ? "Hội thoại mới (Ctrl+Shift+O)" : "Ghi chú mới (Ctrl+N)"}
