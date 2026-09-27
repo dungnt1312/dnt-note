@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api/notes";
 import { isTauri } from "./lib/env";
+import { initAttachmentsDir } from "./lib/media/attachmentUrl";
 import { ThemeProvider } from "./components/theme/ThemeProvider";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NoteEditor } from "./components/notes/NoteEditor";
@@ -148,6 +149,7 @@ function Shell() {
 
   useEffect(() => {
     void load();
+    void initAttachmentsDir();
     void ensureLlmFetch();
     void useSettingsStore.getState().loadStore();
   }, [load]);

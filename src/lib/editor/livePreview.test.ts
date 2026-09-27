@@ -168,3 +168,24 @@ describe("checkbox toggle", () => {
     expect(toggleTaskAt(s, 2)).toEqual({});
   });
 });
+
+describe("image widget spec", () => {
+  it("emits an image widget with the raw src when the line is inactive", () => {
+    const s = makeState("![pic](attachments/u-image%20(1).png)");
+    const specs = specsForLine(s, 1);
+    expect(specs).toContainEqual({
+      kind: "widget",
+      from: s.doc.line(1).length,
+      to: s.doc.line(1).length,
+      widget: "image",
+      src: "attachments/u-image%20(1).png",
+    });
+  });
+
+  it("emits nothing on the active line", () => {
+    const s = makeState("![pic](attachments/a.png)");
+    const line = s.doc.line(1);
+    const node = syntaxTree(s).resolveInner(line.from, 1);
+    expect(collectLineDecorations(node, line.from, line.to, line.text, true)).toEqual([]);
+  });
+});

@@ -1,14 +1,17 @@
 import { syntaxTree } from "@codemirror/language";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
-import { EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
+import { EditorState, StateField, type Extension, type TransactionSpec } from "@codemirror/state";
 import type { SyntaxNode, SyntaxNodeRef } from "@lezer/common";
+import { rewriteAttachmentSrc } from "../media/attachmentUrl";
 
 export type DecorationSpec =
   | { kind: "mark"; from: number; to: number; class: string }
   | { kind: "replace"; from: number; to: number }
   | { kind: "line"; class: string }
-  | { kind: "widget"; from: number; to: number; widget: "checkbox" | "bullet"; checked: boolean };
+  | { kind: "widget"; from: number; to: number; widget: "checkbox" | "bullet"; checked: boolean }
+  // Block image rendered below the line; `src` is the raw markdown URL.
+  | { kind: "widget"; from: number; to: number; widget: "image"; src: string };
 
 const HEADING_LINE_CLASS: Record<string, string> = {
   ATXHeading1: "cm-h1",
@@ -148,6 +151,14 @@ export function collectLineDecorations(
         const end = lineText.charAt(to) === " " ? to + 1 : to;
         specs.push({ kind: "widget", from, to: end, widget: "bullet", checked: false });
       }
+    } else if (cur.name === "Image") {
+      const urlNode = cur.node.getChild("URL");
+      if (urlNode) {
+        const src = lineText.slice(urlNode.from - lineFrom, urlNode.to - lineFrom);
+        specs.push({ kind: "widget", from: lineText.length, to: lineText.length, widget: "image", src });
+      }
+      ok = cursor.next(false);
+      continue;
     } else if (MARK_HIDE.has(cur.name)) {
       specs.push({ kind: "replace", from, to });
     } else if (cur.name === "TaskMarker") {
@@ -219,6 +230,33 @@ class BulletWidget extends WidgetType {
 
 const bulletWidget = new BulletWidget();
 
+class ImageWidget extends WidgetType {
+  constructor(readonly src: string) {
+    super();
+  }
+  eq(other: ImageWidget) {
+    return other.src === this.src;
+  }
+  toDOM() {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-image-block";
+    const img = document.createElement("img");
+    img.src = this.src;
+    img.alt = "";
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = "360px";
+    img.style.display = "block";
+    wrap.appendChild(img);
+    return wrap;
+  }
+}
+
+/** Resolved displayable URL, or "" when the image cannot be shown (e.g. browser mode). */
+function imageDisplaySrc(raw: string): string {
+  const src = rewriteAttachmentSrc(raw);
+  return /^(https?:|asset:|data:)/i.test(src) ? src : "";
+}
+
 function buildDecorations(view: EditorView): DecorationSet {
   const state = view.state;
   const fmEnd = frontmatterEndLine(state);
@@ -254,6 +292,8 @@ function buildDecorations(view: EditorView): DecorationSet {
           ranges.push({ from: line.from, to: line.from, value: Decoration.line({ class: spec.class }) });
           continue;
         }
+        // Image blocks come from imageField: block widgets cannot be provided by a plugin.
+        if (spec.kind === "widget" && spec.widget === "image") continue;
         const a = line.from + spec.from;
         const b = line.from + spec.to;
         if (b <= a) continue;
@@ -272,9 +312,48 @@ function buildDecorations(view: EditorView): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
+function buildImageDecorations(state: EditorState): DecorationSet {
+  const fmEnd = frontmatterEndLine(state);
+  const activeLines = new Set<number>();
+  for (const r of state.selection.ranges) {
+    const a = state.doc.lineAt(r.from).number;
+    const b = state.doc.lineAt(r.to).number;
+    for (let n = a; n <= b; n++) activeLines.add(n);
+  }
+  const ranges: { from: number; to: number; value: Decoration }[] = [];
+  for (let n = fmEnd + 1; n <= state.doc.lines; n++) {
+    const line = state.doc.line(n);
+    if (!line.text.includes("![")) continue;
+    const node = syntaxTree(state).resolveInner(line.from, 1);
+    const specs = collectLineDecorations(node, line.from, line.to, line.text, activeLines.has(n));
+    for (const spec of specs) {
+      if (spec.kind !== "widget" || spec.widget !== "image") continue;
+      const src = imageDisplaySrc(spec.src);
+      if (!src) continue;
+      ranges.push({
+        from: line.to,
+        to: line.to,
+        value: Decoration.widget({ widget: new ImageWidget(src), block: true, side: 1 }),
+      });
+    }
+  }
+  return Decoration.set(ranges, true);
+}
+
+const imageField = StateField.define<DecorationSet>({
+  create: (state) => buildImageDecorations(state),
+  update(value, tr) {
+    if (tr.docChanged || tr.selection || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
+      return buildImageDecorations(tr.state);
+    }
+    return value;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 /** Obsidian-style live preview extension for markdown documents. */
 export function livePreview(): Extension {
-  return ViewPlugin.fromClass(
+  return [imageField, ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
@@ -289,5 +368,5 @@ export function livePreview(): Extension {
     {
       decorations: (v) => v.decorations,
     },
-  );
+  )];
 }

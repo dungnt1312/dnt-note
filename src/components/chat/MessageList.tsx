@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownUrlTransform } from "../../lib/media/attachmentUrl";
 import {
   AlertTriangle,
   Check,
@@ -72,7 +73,7 @@ function Markdown({ text }: { text: string }) {
         "[&_hr]:border-hairline",
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={markdownUrlTransform}>{text}</ReactMarkdown>
     </div>
   );
 }

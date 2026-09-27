@@ -36,7 +36,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/com.dungnt.dntnote/attachments/**"]
+      }
     }
   },
   "plugins": {
