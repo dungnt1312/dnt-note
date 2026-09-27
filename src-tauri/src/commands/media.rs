@@ -75,3 +75,18 @@ pub fn attach_bytes(
 pub fn attachments_dir_path(app: tauri::AppHandle) -> CmdResult<String> {
     Ok(attachments_dir(&app)?.to_string_lossy().into_owned())
 }
+
+/// Store raw bytes in the library without linking them to a note (chat uploads).
+#[tauri::command]
+pub fn import_media_bytes(app: tauri::AppHandle, file_name: String, base64: String) -> CmdResult<StoredFile> {
+    if (base64.len() as u64) / 4 * 3 > attachments::MAX_FILE_BYTES + 3 {
+        return Err("attachment-error: File quá lớn (giới hạn 25MB)".into());
+    }
+    let payload = base64.split_once(',').map(|(_, b)| b).unwrap_or(&base64);
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(payload.trim())
+        .map_err(|e| format!("attachment-error: base64: {e}"))?;
+    let dir = attachments_dir(&app)?;
+    let name = attachments::save_bytes(&dir, &file_name, &bytes).map_err(err_of)?;
+    Ok(StoredFile { name, size: bytes.len() as u64 })
+}

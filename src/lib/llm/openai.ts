@@ -4,9 +4,13 @@
  * POST {baseUrl}/chat/completions (+ GET /models for listing).
  */
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ContentPart[] | null;
   tool_calls?: {
     id: string;
     type: "function";

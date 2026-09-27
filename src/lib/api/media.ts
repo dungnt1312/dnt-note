@@ -19,5 +19,7 @@ export const mediaApi = {
   import: (srcPath: string) => invoke<{ name: string; size: number }>("import_media", { srcPath }),
   attachBytes: (noteId: string, fileName: string, base64: string) =>
     invoke<{ name: string; size: number }>("attach_bytes", { noteId, fileName, base64 }),
+  importBytes: (fileName: string, base64: string) =>
+    invoke<{ name: string; size: number }>("import_media_bytes", { fileName, base64 }),
   dirPath: () => invoke<string>("attachments_dir_path"),
 };

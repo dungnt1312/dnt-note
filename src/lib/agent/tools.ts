@@ -1,5 +1,19 @@
 import { api, type NotePatchDto } from "../api/notes";
 import type { ToolSchema } from "../llm/openai";
+import { mediaApi } from "../api/media";
+import { attachmentsApi } from "../api/attachments";
+
+export const MAX_ATTACHMENT_TEXT = 20000;
+
+/** Stored attachment names are flat; reject anything that could escape the dir. */
+export function isSafeMediaName(name: string): boolean {
+  return !!name && !["/", "\\", "..", "\0"].some((bad) => name.includes(bad));
+}
+
+export function joinAttachmentPath(dir: string, name: string): string {
+  const sep = dir.includes("\\") ? "\\" : "/";
+  return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
+}
 
 export interface ToolArgs {
   id?: string;
@@ -10,9 +24,10 @@ export interface ToolArgs {
   offset?: number;
   limit?: number;
   pinned?: boolean;
+  name?: string;
 }
 
-/** The 10 agent tools (parity with NoteStudio). */
+/** Agent tools: 10 note tools (parity with NoteStudio) + media tools. */
 export const AGENT_TOOLS: ToolSchema[] = [
   fn("list_notes", "Liệt kê ghi chú (mới nhất trước). Trả mảng meta không có body.", {
     type: "object",
@@ -79,6 +94,15 @@ export const AGENT_TOOLS: ToolSchema[] = [
     type: "object",
     properties: { limit: { type: "integer", description: "Mặc định 5" } },
   }),
+  fn("list_media", "Liệt kê file trong thư viện phương tiện (ảnh, tài liệu, âm thanh) kèm ghi chú đang dùng.", {
+    type: "object",
+    properties: {},
+  }),
+  fn("read_attachment", "Đọc nội dung văn bản của một file đính kèm (pdf, docx, txt...) theo tên lưu trữ (trường name từ list_media).", {
+    type: "object",
+    properties: { name: { type: "string", description: "Tên file lưu trữ" } },
+    required: ["name"],
+  }),
 ];
 
 function fn(name: string, description: string, parameters: Record<string, unknown>): ToolSchema {
@@ -132,6 +156,30 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
         return JSON.stringify(await api.notes.tags());
       case "set_tags":
         return JSON.stringify(await api.notes.update(args.id ?? "", { tags: args.tags ?? [] }));
+      case "list_media": {
+        const items = await mediaApi.list();
+        return JSON.stringify(
+          items.slice(0, 100).map((m) => ({
+            name: m.name,
+            displayName: m.displayName,
+            kind: m.kind,
+            size: m.size,
+            usedBy: m.usedBy.map((u) => u.title),
+          })),
+        );
+      }
+      case "read_attachment": {
+        const file = args.name ?? "";
+        if (!isSafeMediaName(file)) return JSON.stringify({ error: "Tên file không hợp lệ" });
+        const dir = await mediaApi.dirPath();
+        const text = await attachmentsApi.extractText(joinAttachmentPath(dir, file));
+        const truncated = text.length > MAX_ATTACHMENT_TEXT;
+        return JSON.stringify({
+          name: file,
+          text: truncated ? text.slice(0, MAX_ATTACHMENT_TEXT) : text,
+          truncated,
+        });
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }

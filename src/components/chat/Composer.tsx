@@ -1,6 +1,17 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ArrowUp, AtSign, FileText, Plus, X } from "lucide-react";
-import { useChatStore } from "../../lib/store/chatStore";
+import { ArrowUp, AtSign, FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
+import { useChatStore, type ChatFileInput } from "../../lib/store/chatStore";
+import { useUi } from "../../lib/store/uiStore";
+import { isTauri } from "../../lib/env";
+import { ATTACHABLE } from "../../lib/media/extensions";
+import {
+  CHAT_AUDIO_UNSUPPORTED,
+  MAX_CHAT_FILES,
+  chatKindOf,
+  displayName,
+  prepareFromBlob,
+  prepareFromPath,
+} from "../../lib/media/chatFiles";
 import { useNotesStore } from "../../lib/store/notesStore";
 import type { NoteMeta } from "../../lib/api/notes";
 import { fuzzyRank } from "../../lib/fuzzy";
@@ -39,6 +50,44 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [caret, setCaret] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [files, setFiles] = useState<ChatFileInput[]>([]);
+  const [preparing, setPreparing] = useState(0);
+  const slotsRef = useRef(0);
+  slotsRef.current = files.length + preparing;
+
+  /** Queue sources (paths or blobs), enforcing the per-message limit and audio rule. */
+  const addSources = (sources: (string | File)[]) => {
+    const toast = useUi.getState().pushToast;
+    const accepted: (string | File)[] = [];
+    for (const src of sources) {
+      const name = typeof src === "string" ? src.split(/[\\/]/).pop() ?? src : src.name;
+      if (chatKindOf(name) === "audio") {
+        toast({ message: CHAT_AUDIO_UNSUPPORTED, durationMs: 4000 });
+        continue;
+      }
+      if (slotsRef.current + accepted.length >= MAX_CHAT_FILES) {
+        toast({ message: `Tối đa ${MAX_CHAT_FILES} tệp mỗi tin nhắn`, durationMs: 4000 });
+        break;
+      }
+      accepted.push(src);
+    }
+    for (const src of accepted) {
+      setPreparing((n) => n + 1);
+      const job = typeof src === "string" ? prepareFromPath(src) : prepareFromBlob(src);
+      job
+        .then((f) => setFiles((all) => [...all, f]))
+        .catch((e) => toast({ message: `Không đính kèm được: ${e instanceof Error ? e.message : String(e)}`, durationMs: 5000 }))
+        .finally(() => setPreparing((n) => n - 1));
+    }
+  };
+
+  const pickFiles = async () => {
+    if (!isTauri) return;
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ multiple: true, filters: [{ name: "Tệp đính kèm", extensions: ATTACHABLE }] });
+    const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+    if (paths.length) addSources(paths);
+  };
 
   const resize = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
@@ -102,14 +151,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     });
   };
 
-  const canSend = draft.trim().length > 0 && status !== "streaming";
+  const canSend = draft.trim().length > 0 && status !== "streaming" && preparing === 0;
 
   const doSend = async () => {
     const text = draft.trim();
-    if (!text || status === "streaming") return;
+    if (!text || status === "streaming" || preparing > 0) return;
     const pending = mentions;
+    const pendingFiles = files;
     setDraft("");
     setMentions([]);
+    setFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     const { api } = await import("../../lib/api/notes");
     const resolved = await Promise.all(
@@ -122,7 +173,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         }
       }),
     );
-    await send(text, resolved);
+    await send(text, resolved, pendingFiles);
   };
 
   const current = notes.find((n) => n.id === selectedId);
@@ -136,6 +187,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           e.preventDefault();
           textareaRef.current?.focus();
         }
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const dropped = Array.from(e.dataTransfer.files);
+        if (!dropped.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        addSources(dropped);
       }}
     >
       {menuOpen && (
@@ -192,6 +253,43 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       )}
 
+      {(files.length > 0 || preparing > 0) && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+          {files.map((f) => (
+            <span
+              key={f.name}
+              className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[10px] border border-composer-border bg-control pl-2 pr-1 text-footnote text-fg"
+            >
+              {f.kind === "image" && f.dataUrl ? (
+                <img src={f.dataUrl} alt="" className="size-4 shrink-0 rounded object-cover" />
+              ) : (
+                <FileText size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />
+              )}
+              <span className="truncate">{displayName(f.name)}</span>
+              <button
+                type="button"
+                aria-label={`Bỏ tệp ${displayName(f.name)}`}
+                onClick={() => setFiles((all) => all.filter((x) => x.name !== f.name))}
+                className="flex size-5 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
+              >
+                <X size={11} aria-hidden="true" />
+              </button>
+            </span>
+          ))}
+          {Array.from({ length: preparing }, (_, i) => (
+            <span
+              key={`prep-${i}`}
+              role="status"
+              aria-label="Đang chuẩn bị tệp"
+              className="inline-flex h-7 items-center gap-1.5 rounded-[10px] border border-composer-border bg-control px-2 text-footnote text-fg-secondary"
+            >
+              <Loader2 size={12} aria-hidden="true" className="animate-spin" />
+              Đang chuẩn bị…
+            </span>
+          ))}
+        </div>
+      )}
+
       <textarea
         ref={textareaRef}
         value={draft}
@@ -207,6 +305,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           setDismissed(false);
           setCursor(0);
           resize(e.target);
+        }}
+        onPaste={(e) => {
+          const pasted = Array.from(e.clipboardData.files);
+          if (!pasted.length) return;
+          e.preventDefault();
+          addSources(pasted);
         }}
         onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
         onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
@@ -247,6 +351,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         >
           <AtSign size={17} strokeWidth={1.75} aria-hidden="true" />
         </button>
+        {isTauri && (
+          <button
+            type="button"
+            aria-label="Đính kèm tệp"
+            title="Đính kèm ảnh hoặc tài liệu"
+            onClick={() => void pickFiles()}
+            className="flex size-[34px] items-center justify-center rounded-full text-fg transition-colors hover:bg-composer-hover"
+          >
+            <Paperclip size={17} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        )}
         {suggestCurrent && current && (
           <button
             type="button"
@@ -288,3 +403,4 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     </div>
   );
 });
+

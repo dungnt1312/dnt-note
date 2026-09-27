@@ -18,7 +18,21 @@ vi.mock("../api/notes", () => {
   };
 });
 
+vi.mock("../api/media", () => ({
+  mediaApi: {
+    list: vi.fn(async () => [
+      { name: "u-a.pdf", displayName: "a.pdf", ext: "pdf", kind: "document", size: 10, modified: "", usedBy: [{ id: "n1", title: "T" }] },
+    ]),
+    dirPath: vi.fn(async () => "C:\\data\\attachments"),
+  },
+}));
+vi.mock("../api/attachments", () => ({
+  attachmentsApi: { extractText: vi.fn(async () => "x".repeat(25000)) },
+}));
+
 import { api } from "../api/notes";
+import { mediaApi } from "../api/media";
+import { attachmentsApi } from "../api/attachments";
 import { AGENT_TOOLS, executeTool, type ToolArgs } from "./tools";
 
 const mocked = vi.mocked(api.notes, true);
@@ -27,8 +41,9 @@ describe("AGENT_TOOLS", () => {
   const expected = [
     "list_notes", "search_notes", "read_note", "create_note", "update_note",
     "delete_note", "get_stats", "list_tags", "set_tags", "get_recent_notes",
+    "list_media", "read_attachment",
   ];
-  it("has exactly the 10 tools with descriptions and object parameters", () => {
+  it("has exactly the 12 tools with descriptions and object parameters", () => {
     expect(AGENT_TOOLS.map((t) => t.function.name).sort()).toEqual([...expected].sort());
     for (const t of AGENT_TOOLS) {
       expect(t.type).toBe("function");
@@ -40,6 +55,33 @@ describe("AGENT_TOOLS", () => {
 
 describe("executeTool", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("list_media maps usedBy to titles", async () => {
+    const out = JSON.parse(await executeTool("list_media", {}));
+    expect(out).toEqual([{ name: "u-a.pdf", displayName: "a.pdf", kind: "document", size: 10, usedBy: ["T"] }]);
+  });
+
+  it("read_attachment extracts and truncates text", async () => {
+    const out = JSON.parse(await executeTool("read_attachment", { name: "u-a.pdf" }));
+    expect(vi.mocked(attachmentsApi.extractText)).toHaveBeenCalledWith("C:\\data\\attachments\\u-a.pdf");
+    expect(out.text).toHaveLength(20000);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("read_attachment rejects path traversal", async () => {
+    for (const bad of ["../x.pdf", "a/b.pdf", "a\\b.pdf", ""]) {
+      const out = JSON.parse(await executeTool("read_attachment", { name: bad }));
+      expect(out.error).toBeTruthy();
+    }
+    expect(vi.mocked(attachmentsApi.extractText)).not.toHaveBeenCalled();
+    expect(vi.mocked(mediaApi.dirPath)).not.toHaveBeenCalled();
+  });
+
+  it("read_attachment returns error JSON when extraction fails", async () => {
+    vi.mocked(attachmentsApi.extractText).mockRejectedValueOnce(new Error("boom"));
+    const out = JSON.parse(await executeTool("read_attachment", { name: "u-a.pdf" }));
+    expect(out.error).toContain("boom");
+  });
 
   it("list_notes with offset/limit", async () => {
     const out = await executeTool("list_notes", { offset: 0, limit: 5 } as ToolArgs);

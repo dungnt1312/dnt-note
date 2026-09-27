@@ -26,7 +26,7 @@ vi.mock("../api/notes", () => ({
 
 import { runAgent } from "../agent/engine";
 import { api } from "../api/chats";
-import { useChatStore, newId } from "./chatStore";
+import { useChatStore, newId, buildUserContent } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
 
 const runAgentMock = vi.mocked(runAgent);
@@ -142,6 +142,23 @@ describe("chatStore", () => {
     expect(runAgentMock).toHaveBeenCalledTimes(2);
   });
 
+  it("retryLast resends the same files", async () => {
+    runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
+    const files = [{ name: "u-a.png", kind: "image" as const, dataUrl: "data:image/png;base64,AA" }];
+    await useChatStore.getState().send("xem ảnh", [], files);
+    await useChatStore.getState().retryLast();
+    const last = runAgentMock.mock.calls[1][0].messages.at(-1);
+    expect(Array.isArray(last?.content)).toBe(true);
+    expect(useChatStore.getState().messages[0].files).toEqual([{ name: "u-a.png", kind: "image" }]);
+  });
+
+  it("persists user files as text markers, not base64", async () => {
+    runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
+    await useChatStore.getState().send("q", [], [{ name: "u-a.png", kind: "image", dataUrl: "data:x" }]);
+    const saved = saveMock.mock.calls.at(-1)?.[0];
+    expect(saved?.messages[0].content).toBe("q\n\n[📎 u-a.png]");
+  });
+
   it("deleteChat removes the session and resets when it was open", async () => {
     const id = useChatStore.getState().chatId;
     useChatStore.setState({ sessions: [{ id, title: "x", updated: "" }] });
@@ -156,5 +173,31 @@ describe("chatStore", () => {
     expect(useChatStore.getState().messages).toHaveLength(0);
     useChatStore.getState().stop();
     expect(useChatStore.getState().status).toBe("idle");
+  });
+});
+
+describe("buildUserContent", () => {
+  it("returns plain string with mentions and documents when no images", () => {
+    const out = buildUserContent("hỏi", [{ id: "n", title: "A", body: "nội dung" }], [
+      { name: "doc.pdf", kind: "document", text: "y".repeat(25000) },
+    ]);
+    expect(typeof out).toBe("string");
+    const s = out as string;
+    expect(s.startsWith("hỏi\n\n[@A]\n---\nnội dung\n\n[📎 doc.pdf]\n---\n")).toBe(true);
+    expect(s.length).toBe("hỏi\n\n[@A]\n---\nnội dung\n\n[📎 doc.pdf]\n---\n".length + 20000);
+  });
+
+  it("returns content parts when images are present", () => {
+    const out = buildUserContent("xem", [], [
+      { name: "a.png", kind: "image", dataUrl: "data:image/png;base64,AA" },
+    ]);
+    expect(out).toEqual([
+      { type: "text", text: "xem" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA" } },
+    ]);
+  });
+
+  it("returns the text unchanged with nothing attached", () => {
+    expect(buildUserContent("hi", [], [])).toBe("hi");
   });
 });

@@ -277,6 +277,7 @@ pub fn run() {
             commands::media::delete_media,
             commands::media::import_media,
             commands::media::attach_bytes,
+            commands::media::import_media_bytes,
             commands::media::attachments_dir_path,
             commands::sync::set_sync_folder,
             commands::sync::get_sync_folder,

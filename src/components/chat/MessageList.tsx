@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { markdownUrlTransform } from "../../lib/media/attachmentUrl";
+import { attachmentUrl, markdownUrlTransform } from "../../lib/media/attachmentUrl";
+import { displayName } from "../../lib/media/chatFiles";
 import {
   AlertTriangle,
   Check,
@@ -9,6 +10,7 @@ import {
   Copy,
   FileText,
   FilePlus2,
+  Paperclip,
   Pencil,
   RotateCcw,
   Search,
@@ -226,6 +228,30 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
               {m.title}
             </span>
           ))}
+        </div>
+      )}
+      {message.files && message.files.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1">
+          {message.files.map((f) => {
+            const url = f.kind === "image" ? attachmentUrl(f.name) : "";
+            return url ? (
+              <img
+                key={f.name}
+                src={url}
+                alt={displayName(f.name)}
+                title={displayName(f.name)}
+                className="size-16 rounded-md border border-hairline object-cover"
+              />
+            ) : (
+              <span
+                key={f.name}
+                className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary"
+              >
+                <Paperclip size={11} aria-hidden="true" />
+                {displayName(f.name)}
+              </span>
+            );
+          })}
         </div>
       )}
       <div className="max-w-[85%] select-text whitespace-pre-wrap break-words rounded-lg bg-bubble px-4 py-2.5 text-body text-fg">
