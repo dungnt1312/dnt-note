@@ -92,6 +92,12 @@ pub fn search_notes(
 }
 
 #[tauri::command]
+pub fn get_backlinks(state: State<AppState>, id: String) -> CmdResult<Vec<NoteMeta>> {
+    let store = state.store.lock().map_err(err_of)?;
+    store.backlinks(&id).map_err(err_of)
+}
+
+#[tauri::command]
 pub fn list_tags(state: State<AppState>) -> CmdResult<Vec<TagCount>> {
     let store = state.store.lock().map_err(err_of)?;
     Ok(store

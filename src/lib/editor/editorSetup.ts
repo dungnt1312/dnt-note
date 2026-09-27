@@ -5,6 +5,7 @@ import { EditorState, type Extension } from "@codemirror/state";
 import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { livePreview } from "./livePreview";
 import { trackedPositions } from "./trackedPos";
+import { wikiLinks } from "./wikiLinks";
 import { toggleWrap, setHeading, toggleLinePrefix } from "./formatting";
 
 export interface EditorOptions {
@@ -13,6 +14,7 @@ export interface EditorOptions {
   placeholder?: string;
   /** `text` is plain text pasted alongside files; insert it before the links. */
   onFiles?: (files: File[], pos: number, text?: string) => void;
+  wikiLinks?: { titles: () => string[]; onOpen: (target: string) => void };
 }
 
 const formatKeymap = keymap.of([
@@ -34,6 +36,7 @@ export function editorSetup(options: EditorOptions): Extension[] {
   return [
     markdown({ base: markdownLanguage, extensions: GFM }),
     livePreview(),
+    ...(options.wikiLinks ? wikiLinks(options.wikiLinks) : []),
     trackedPositions,
     history(),
     EditorView.lineWrapping,
@@ -145,6 +148,18 @@ const editorTheme = EditorView.theme({
     borderLeft: "3px solid var(--studio-hairline)",
     paddingLeft: "14px !important",
     color: "var(--studio-fg-secondary)",
+  },
+  ".cm-wikilink": {
+    color: "var(--studio-accent)",
+    fontWeight: "500",
+    cursor: "pointer",
+    textDecorationColor: "currentColor",
+  },
+  ".cm-wikilink:hover": { textDecoration: "underline" },
+  ".cm-wikilink-missing": {
+    opacity: "0.6",
+    textDecoration: "underline dashed",
+    textUnderlineOffset: "3px",
   },
   ".cm-hr": { color: "var(--studio-fg-tertiary)" },
   ".cm-bullet": {

@@ -8,3 +8,4 @@ pub mod skills;
 pub mod store;
 pub mod sync;
 pub mod watcher;
+pub mod wiki;

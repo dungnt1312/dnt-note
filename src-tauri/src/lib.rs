@@ -293,6 +293,7 @@ pub fn run() {
             commands::notes::restore_version,
             commands::notes::snapshot_note,
             commands::notes::search_notes,
+            commands::notes::get_backlinks,
             commands::notes::list_tags,
             commands::notes::empty_trash,
             commands::stats::get_stats,

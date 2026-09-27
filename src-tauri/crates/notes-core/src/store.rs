@@ -250,6 +250,35 @@ impl NotesStore {
         scored.into_iter().map(|(_, m)| m).take(limit).collect()
     }
 
+    /// Live notes (other than `id`) whose body wiki-links to this note's
+    /// title, case-insensitively.
+    pub fn backlinks(&self, id: &str) -> Result<Vec<NoteMeta>> {
+        let title = self
+            .index
+            .get(id)
+            .map(|m| m.title.clone())
+            .ok_or_else(|| NoteError::NotFound(id.to_string()))?;
+        let want = title.trim().to_lowercase();
+        if want.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut out = Vec::new();
+        for meta in self.list() {
+            if meta.id == id {
+                continue;
+            }
+            if let Ok(note) = self.read(&meta.id) {
+                if crate::wiki::parse_wiki_targets(&note.body)
+                    .iter()
+                    .any(|t| t.to_lowercase() == want)
+                {
+                    out.push(meta);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn tags(&self) -> Vec<(String, usize)> {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for meta in self.index.values() {
@@ -367,6 +396,21 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = NotesStore::new(tmp.path().join("notes")).unwrap();
         (tmp, store)
+    }
+
+    #[test]
+    fn backlinks_match_title_case_insensitive() {
+        let (_tmp, mut store) = setup();
+        let target = store.create("Kế Hoạch", "[[kế hoạch]] self", vec![]).unwrap();
+        let a = store.create("A", "xem [[ kế hoạch |plan]]", vec![]).unwrap();
+        store.create("B", "không liên kết `[[Kế Hoạch]]`", vec![]).unwrap();
+        let c = store.create("C", "[[KẾ HOẠCH]]", vec![]).unwrap();
+        let mut ids: Vec<String> = store.backlinks(&target.id).unwrap().into_iter().map(|m| m.id).collect();
+        ids.sort();
+        let mut want = vec![a.id, c.id];
+        want.sort();
+        assert_eq!(ids, want);
+        assert!(store.backlinks("nope").is_err());
     }
 
     #[test]

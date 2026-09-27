@@ -32,6 +32,7 @@ const TOOL_LABEL: Record<string, string> = {
   list_notes: "Xem danh sách ghi chú",
   get_recent_notes: "Xem ghi chú gần đây",
   search_notes: "Tìm trong ghi chú",
+  get_backlinks: "Xem liên kết ngược",
   read_note: "Đọc ghi chú",
   create_note: "Tạo ghi chú",
   update_note: "Sửa ghi chú",

@@ -7,6 +7,7 @@ vi.mock("../api/notes", () => {
       notes: {
         list: vi.fn(async () => [note]),
         search: vi.fn(async () => [note]),
+        backlinks: vi.fn(async () => [note]),
         read: vi.fn(async () => note),
         create: vi.fn(async () => note),
         update: vi.fn(async () => note),
@@ -50,9 +51,9 @@ describe("AGENT_TOOLS", () => {
   const expected = [
     "list_notes", "search_notes", "read_note", "create_note", "update_note",
     "delete_note", "get_stats", "list_tags", "set_tags", "get_recent_notes",
-    "list_media", "read_attachment", "load_skill",
+    "list_media", "read_attachment", "load_skill", "get_backlinks",
   ];
-  it("has exactly the 13 tools with descriptions and object parameters", () => {
+  it("has exactly the 14 tools with descriptions and object parameters", () => {
     expect(AGENT_TOOLS.map((t) => t.function.name).sort()).toEqual([...expected].sort());
     for (const t of AGENT_TOOLS) {
       expect(t.type).toBe("function");
@@ -110,6 +111,11 @@ describe("executeTool", () => {
     const out = await executeTool("list_notes", { offset: 0, limit: 5 } as ToolArgs);
     expect(mocked.list).toHaveBeenCalledWith();
     expect(JSON.parse(out)).toHaveLength(1);
+  });
+
+  it("get_backlinks passes id", async () => {
+    await executeTool("get_backlinks", { id: "n1" } as ToolArgs);
+    expect(mocked.backlinks).toHaveBeenCalledWith("n1");
   });
 
   it("search_notes passes query", async () => {

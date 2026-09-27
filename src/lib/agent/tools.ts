@@ -47,6 +47,11 @@ export const AGENT_TOOLS: ToolSchema[] = [
     properties: { id: { type: "string", description: "Id ghi chú" } },
     required: ["id"],
   }),
+  fn("get_backlinks", "Liệt kê các ghi chú có wiki-link [[Tiêu đề]] trỏ tới ghi chú này (liên kết ngược).", {
+    type: "object",
+    properties: { id: { type: "string", description: "Id ghi chú" } },
+    required: ["id"],
+  }),
   fn("create_note", "Tạo ghi chú mới. Trả về note đã tạo kèm id.", {
     type: "object",
     properties: {
@@ -132,6 +137,8 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
         return JSON.stringify(await api.notes.search(args.query ?? "", args.limit ?? 10));
       case "read_note":
         return JSON.stringify(await api.notes.read(args.id ?? ""));
+      case "get_backlinks":
+        return JSON.stringify(await api.notes.backlinks(args.id ?? ""));
       case "create_note":
         return JSON.stringify(
           await api.notes.create(args.title ?? "Untitled", args.body ?? "", args.tags ?? []),

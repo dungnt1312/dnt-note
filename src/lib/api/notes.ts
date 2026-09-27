@@ -60,6 +60,7 @@ export const api = {
     restore: (id: string) => invoke<Note>("restore_note", { id }),
     search: (query: string, limit?: number) =>
       invoke<NoteMeta[]>("search_notes", { query, limit }),
+    backlinks: (id: string) => invoke<NoteMeta[]>("get_backlinks", { id }),
     tags: () => invoke<TagCount[]>("list_tags"),
     emptyTrash: () => invoke<number>("empty_trash"),
     stats: () => invoke<StatsDto>("get_stats"),
