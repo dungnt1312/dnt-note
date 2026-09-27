@@ -3,6 +3,9 @@ import { Check, ChevronDown, Eye, EyeOff, Loader2, Plus, Trash2, X } from "lucid
 import { listModels, initLlmFetch } from "../../lib/llm/openai";
 import { useSettingsStore, PROVIDER_PRESETS, type LlmProvider } from "../../lib/store/settingsStore";
 import { isTauri } from "../../lib/env";
+import { useUi } from "../../lib/store/uiStore";
+import { api } from "../../lib/api/notes";
+import { embeddingProvider, ensureIndex } from "../../lib/semantic";
 import { cn } from "../../lib/utils";
 import { SecondaryButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
@@ -190,6 +193,64 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
   );
 }
 
+function SemanticIndexingRow() {
+  const enabled = useSettingsStore((s) => s.semanticIndexing);
+  const setEnabled = useSettingsStore((s) => s.setSemanticIndexing);
+  const pushToast = useUi((s) => s.pushToast);
+  const [busy, setBusy] = useState(false);
+
+  const buildNow = async () => {
+    setBusy(true);
+    try {
+      const provider = embeddingProvider();
+      const index = await ensureIndex(provider, await api.notes.list());
+      pushToast({ message: `Đã lập chỉ mục ${Object.keys(index.entries).length} ghi chú`, durationMs: 4000 });
+    } catch (e) {
+      pushToast({ message: e instanceof Error ? e.message : String(e), durationMs: 6000 });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-hairline p-3.5">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-callout font-medium text-fg">Tìm kiếm theo ý nghĩa</p>
+          <p className="text-footnote text-fg-secondary">
+            Khi bật, tiêu đề và nội dung ghi chú sẽ được gửi tới endpoint embeddings của nhà cung cấp đang chọn để
+            lập chỉ mục (chỉ mục lưu trên máy). Cần nhập “Model embeddings” cho nhà cung cấp.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Tìm kiếm theo ý nghĩa"
+          onClick={() => void setEnabled(!enabled)}
+          className={cn("relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors", enabled ? "bg-accent" : "bg-hairline")}
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "absolute top-[2px] size-[18px] rounded-full bg-white shadow transition-[left]",
+              enabled ? "left-[18px]" : "left-[2px]",
+            )}
+          />
+        </button>
+      </div>
+      {enabled && (
+        <div>
+          <SecondaryButton onClick={() => void buildNow()} disabled={busy}>
+            {busy && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+            Tạo chỉ mục ngay
+          </SecondaryButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProvidersSection() {
   const providers = useSettingsStore((s) => s.providers);
   const addProvider = useSettingsStore((s) => s.addProvider);
@@ -223,6 +284,7 @@ export function ProvidersSection() {
           </MenuItem>
         ))}
       </Menu>
+      <SemanticIndexingRow />
       <ConfirmDialog
         open={deleting !== null}
         title={`Xóa nhà cung cấp “${deleting?.name ?? ""}”?`}

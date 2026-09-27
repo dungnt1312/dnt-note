@@ -19,7 +19,8 @@ import { useNotesStore } from "../../lib/store/notesStore";
 import { useChatStore } from "../../lib/store/chatStore";
 import { useUi } from "../../lib/store/uiStore";
 import { useTheme } from "../theme/ThemeProvider";
-import { semanticSearch, type SemanticResult } from "../../lib/semantic";
+import { INDEXING_DISABLED, semanticSearch, type SemanticResult } from "../../lib/semantic";
+import { useSettingsStore } from "../../lib/store/settingsStore";
 import { fuzzyRank } from "../../lib/fuzzy";
 import { shortDate } from "../../lib/dates";
 import { cn } from "../../lib/utils";
@@ -63,11 +64,12 @@ export function CommandPalette() {
     error: null,
     results: [],
   });
+  const semanticEnabled = useSettingsStore((s) => s.semanticIndexing);
   const semanticMode = query.startsWith("?");
   const semanticQuery = semanticMode ? query.slice(1).trim() : "";
 
   useEffect(() => {
-    if (!semanticMode || !semanticQuery) {
+    if (!semanticMode || !semanticQuery || !semanticEnabled) {
       setSemantic({ loading: false, error: null, results: [] });
       return;
     }
@@ -82,7 +84,7 @@ export function CommandPalette() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [semanticMode, semanticQuery]);
+  }, [semanticMode, semanticQuery, semanticEnabled]);
 
   const close = () => {
     setOpen(false);
@@ -211,18 +213,21 @@ export function CommandPalette() {
         </div>
         <div className="h-px bg-hairline" />
         <div ref={listRef} id="palette-list" role="listbox" className="max-h-[380px] overflow-y-auto p-1.5">
-          {semanticMode && semantic.loading && (
+          {semanticMode && !semanticEnabled && (
+            <p role="alert" className="px-3 py-7 text-center text-callout text-fg-secondary">{INDEXING_DISABLED}</p>
+          )}
+          {semanticMode && semanticEnabled && semantic.loading && (
             <p className="flex items-center justify-center gap-2 py-7 text-callout text-fg-secondary">
               <Loader2 size={15} className="animate-spin" aria-hidden="true" /> Đang tìm theo ý nghĩa…
             </p>
           )}
-          {semanticMode && !semantic.loading && semantic.error && (
+          {semanticMode && semanticEnabled && !semantic.loading && semantic.error && (
             <p role="alert" className="px-3 py-7 text-center text-callout text-fg-secondary">{semantic.error}</p>
           )}
-          {semanticMode && !semantic.loading && !semantic.error && !semanticQuery && (
+          {semanticMode && semanticEnabled && !semantic.loading && !semantic.error && !semanticQuery && (
             <p className="py-7 text-center text-callout text-fg-secondary">Nhập mô tả nội dung cần tìm sau dấu “?”</p>
           )}
-          {semanticMode && !semantic.loading && !semantic.error && semanticQuery && items.length === 0 && (
+          {semanticMode && semanticEnabled && !semantic.loading && !semantic.error && semanticQuery && items.length === 0 && (
             <p className="py-7 text-center text-callout text-fg-secondary">Không có kết quả</p>
           )}
           {!semanticMode && items.length === 0 && (

@@ -13,6 +13,9 @@ export interface LlmProvider {
 interface SettingsState {
   providers: LlmProvider[];
   activeProviderId: string | null;
+  /** User consent: send note content to the embeddings endpoint. */
+  semanticIndexing: boolean;
+  setSemanticIndexing: (on: boolean) => Promise<void>;
   loaded: boolean;
   loadStore: () => Promise<void>;
   addProvider: (p: Omit<LlmProvider, "id">) => Promise<void>;
@@ -78,12 +81,14 @@ async function persist(state: SettingsState): Promise<void> {
   if (!store) return;
   await store.set("providers", state.providers);
   await store.set("activeProviderId", state.activeProviderId);
+  await store.set("semanticIndexing", state.semanticIndexing);
   await store.save();
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
   providers: [],
   activeProviderId: null,
+  semanticIndexing: false,
   loaded: false,
 
   loadStore: async () => {
@@ -92,6 +97,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       const providers = ((await store?.get("providers")) as LlmProvider[] | undefined) ?? [];
       const activeProviderId =
         ((await store?.get("activeProviderId")) as string | undefined) ?? null;
+      set({ semanticIndexing: (await store?.get("semanticIndexing")) === true });
       if (providers.length === 0) {
         // First run: seed the local Ollama preset so chat works out of the box.
         const first: LlmProvider = { id: newId(), ...PROVIDER_PRESETS[0], apiKey: "" };
@@ -129,6 +135,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       providers: s.providers.filter((x) => x.id !== id),
       activeProviderId: s.activeProviderId === id ? null : s.activeProviderId,
     }));
+    await persist(get());
+  },
+
+  setSemanticIndexing: async (on) => {
+    set({ semanticIndexing: on });
     await persist(get());
   },
 

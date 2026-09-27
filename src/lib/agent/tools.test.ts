@@ -40,9 +40,11 @@ vi.mock("../api/attachments", () => ({
   attachmentsApi: { extractText: vi.fn(async () => "x".repeat(25000)) },
 }));
 
+const toolSettings = vi.hoisted(() => ({ semanticIndexing: true }));
 vi.mock("../store/settingsStore", () => ({
   useSettingsStore: {
     getState: () => ({
+      semanticIndexing: toolSettings.semanticIndexing,
       activeProvider: () => ({ id: "p", name: "P", baseUrl: "http://x", model: "m", apiKey: "" }),
     }),
   },
@@ -174,5 +176,11 @@ describe("semantic_search tool", () => {
   it("returns a friendly error when no embedding model is configured", async () => {
     const out = JSON.parse(await executeTool("semantic_search", { query: "abc" }));
     expect(out.error).toContain("Chưa cấu hình model embeddings");
+  });
+  it("returns the consent message when semantic indexing is off", async () => {
+    toolSettings.semanticIndexing = false;
+    const out = JSON.parse(await executeTool("semantic_search", { query: "abc" }));
+    toolSettings.semanticIndexing = true;
+    expect(out.error).toContain("Tìm theo ý nghĩa đang tắt");
   });
 });
