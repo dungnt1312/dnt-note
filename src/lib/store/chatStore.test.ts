@@ -152,6 +152,38 @@ describe("chatStore", () => {
     expect(useChatStore.getState().messages[0].files).toEqual([{ name: "u-a.png", kind: "image" }]);
   });
 
+  it("newChat/loadChat clear retry context so files are not resent", async () => {
+    runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
+    await useChatStore.getState().send("a", [{ id: "n", title: "T", body: "b" }], [
+      { name: "u-a.png", kind: "image", dataUrl: "data:x" },
+    ]);
+    await useChatStore.getState().newChat();
+    useChatStore.setState({ messages: [{ id: "m1", role: "user", content: "khác" }] });
+    await useChatStore.getState().retryLast();
+    expect(runAgentMock.mock.calls[1][0].messages.at(-1)?.content).toBe("khác");
+
+    await useChatStore.getState().send("b", [], [{ name: "u-b.png", kind: "image", dataUrl: "data:y" }]);
+    await useChatStore.getState().loadChat("c1");
+    useChatStore.setState({ messages: [{ id: "m2", role: "user", content: "x" }] });
+    await useChatStore.getState().retryLast();
+    expect(runAgentMock.mock.calls.at(-1)?.[0].messages.at(-1)?.content).toBe("x");
+  });
+
+  it("sends with empty text when files are attached", async () => {
+    runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
+    await useChatStore.getState().send("", [], [{ name: "u-d.pdf", kind: "document", text: "t" }]);
+    expect(runAgentMock).toHaveBeenCalledTimes(1);
+    const user = useChatStore.getState().messages[0];
+    expect(user.content).toBe("");
+    expect(user.files).toEqual([{ name: "u-d.pdf", kind: "document" }]);
+    expect(saveMock.mock.calls.at(-1)?.[0].messages[0].content).toBe("[📎 u-d.pdf]");
+  });
+
+  it("ignores empty text without files", async () => {
+    await useChatStore.getState().send("  ", []);
+    expect(runAgentMock).not.toHaveBeenCalled();
+  });
+
   it("persists user files as text markers, not base64", async () => {
     runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
     await useChatStore.getState().send("q", [], [{ name: "u-a.png", kind: "image", dataUrl: "data:x" }]);

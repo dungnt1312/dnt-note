@@ -15,7 +15,7 @@ import {
 import { useNotesStore } from "../../lib/store/notesStore";
 import type { NoteMeta } from "../../lib/api/notes";
 import { fuzzyRank } from "../../lib/fuzzy";
-import { cn } from "../../lib/utils";
+import { cn, errMsg } from "../../lib/utils";
 
 /** Detects an active @mention query right before the caret. */
 export function mentionQuery(text: string, caret: number): string | null {
@@ -83,10 +83,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const pickFiles = async () => {
     if (!isTauri) return;
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({ multiple: true, filters: [{ name: "Tệp đính kèm", extensions: ATTACHABLE }] });
-    const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
-    if (paths.length) addSources(paths);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ multiple: true, filters: [{ name: "Tệp đính kèm", extensions: ATTACHABLE }] });
+      const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+      if (paths.length) addSources(paths);
+    } catch (e) {
+      useUi.getState().pushToast({ message: errMsg(e), durationMs: 5000 });
+    }
   };
 
   const resize = (el: HTMLTextAreaElement) => {
@@ -151,11 +155,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     });
   };
 
-  const canSend = draft.trim().length > 0 && status !== "streaming" && preparing === 0;
+  const canSend = (draft.trim().length > 0 || files.length > 0) && status !== "streaming" && preparing === 0;
 
   const doSend = async () => {
     const text = draft.trim();
-    if (!text || status === "streaming" || preparing > 0) return;
+    if ((!text && files.length === 0) || status === "streaming" || preparing > 0) return;
     const pending = mentions;
     const pendingFiles = files;
     setDraft("");

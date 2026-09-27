@@ -1,7 +1,7 @@
 import { mediaApi } from "../api/media";
 import { attachmentsApi } from "../api/attachments";
-import { joinAttachmentPath } from "../agent/tools";
-import { MAX_DOC_CHARS, type ChatFileInput } from "../store/chatStore";
+import type { ChatFileInput } from "../store/chatStore";
+import { MAX_DOC_CHARS, joinAttachmentPath } from "./paths";
 import { AUDIO_EXTS } from "./extensions";
 import { fileToBase64 } from "./insertLink";
 

@@ -254,9 +254,11 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
           })}
         </div>
       )}
-      <div className="max-w-[85%] select-text whitespace-pre-wrap break-words rounded-lg bg-bubble px-4 py-2.5 text-body text-fg">
-        {message.content}
-      </div>
+      {message.content && (
+        <div className="max-w-[85%] select-text whitespace-pre-wrap break-words rounded-lg bg-bubble px-4 py-2.5 text-body text-fg">
+          {message.content}
+        </div>
+      )}
       <div className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <CopyAction text={message.content} />
         {onRetry && (

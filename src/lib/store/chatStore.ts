@@ -5,6 +5,7 @@ import { useNotesStore } from "./notesStore";
 import { useUi } from "./uiStore";
 import { api, type ChatMetaDto, type ChatSessionDto } from "../api/chats";
 import type { ContentPart } from "../llm/openai";
+import { MAX_DOC_CHARS } from "../media/paths";
 
 export interface UiToolCall {
   id: string;
@@ -68,11 +69,15 @@ export function newId(): string {
 
 export const NEW_CHAT_TITLE = "Phiên chat mới";
 const MAX_CONTEXT_CHARS = 8000;
-export const MAX_DOC_CHARS = 20000;
 let controller: AbortController | null = null;
 /** Mention bodies of the last send, so "retry" can rebuild the same context. */
 let lastMentions: MentionInput[] = [];
 let lastFiles: ChatFileInput[] = [];
+
+function resetRetryContext(): void {
+  lastMentions = [];
+  lastFiles = [];
+}
 
 /** Build the model-facing user content: text + mention/doc context, plus image parts when present. */
 export function buildUserContent(
@@ -101,7 +106,8 @@ export function buildUserContent(
 /** Plain-text content persisted for a user message (no base64). */
 function persistedUserText(m: UiMessage): string {
   if (!m.files?.length) return m.content;
-  return `${m.content}\n\n${m.files.map((f) => `[📎 ${f.name}]`).join(" ")}`;
+  const markers = m.files.map((f) => `[📎 ${f.name}]`).join(" ");
+  return m.content ? `${m.content}\n\n${markers}` : markers;
 }
 
 function sessionTitle(messages: UiMessage[], chatTitle: string): string {
@@ -139,7 +145,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   sessions: [],
 
   send: async (text, mentions, files = []) => {
-    if (get().status === "streaming" || !text.trim()) return;
+    if (get().status === "streaming" || (!text.trim() && files.length === 0)) return;
     const provider = useSettingsStore.getState().activeProvider();
     if (!provider) {
       set({ error: "Chưa cấu hình provider AI — mở Cài đặt → Nhà cung cấp AI." });
@@ -275,12 +281,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   newChat: async () => {
     get().stop();
+    resetRetryContext();
     set({ chatId: newId(), chatTitle: NEW_CHAT_TITLE, messages: [], status: "idle", error: null });
   },
 
   loadChat: async (id) => {
     if (id === get().chatId) return;
     get().stop();
+    resetRetryContext();
     try {
       const session = await api.chats.load(id);
       set({

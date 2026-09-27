@@ -2,18 +2,15 @@ import { api, type NotePatchDto } from "../api/notes";
 import type { ToolSchema } from "../llm/openai";
 import { mediaApi } from "../api/media";
 import { attachmentsApi } from "../api/attachments";
+import { MAX_DOC_CHARS, joinAttachmentPath } from "../media/paths";
 
-export const MAX_ATTACHMENT_TEXT = 20000;
+export const MAX_ATTACHMENT_TEXT = MAX_DOC_CHARS;
 
 /** Stored attachment names are flat; reject anything that could escape the dir. */
 export function isSafeMediaName(name: string): boolean {
   return !!name && !["/", "\\", "..", "\0"].some((bad) => name.includes(bad));
 }
 
-export function joinAttachmentPath(dir: string, name: string): string {
-  const sep = dir.includes("\\") ? "\\" : "/";
-  return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
-}
 
 export interface ToolArgs {
   id?: string;
