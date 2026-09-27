@@ -195,7 +195,7 @@ export function ChatInput(props: ChatInputProps) {
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-2 top-1.5 select-none px-2 py-1.5 text-body text-fg-tertiary">
+            <div className="pointer-events-none absolute inset-x-2 top-1.5 select-none text-body text-fg-tertiary">
               {props.placeholder}
             </div>
           }
