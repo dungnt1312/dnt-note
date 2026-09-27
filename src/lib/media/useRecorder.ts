@@ -18,6 +18,7 @@ export function useRecorder({ onBlob, onError, onCancel, maxMs = MAX_RECORD_MS }
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startingRef = useRef(false);
+  const mountedRef = useRef(true);
   const cbRef = useRef({ onBlob, onError, onCancel });
   cbRef.current = { onBlob, onError, onCancel };
 
@@ -39,6 +40,11 @@ export function useRecorder({ onBlob, onError, onCancel, maxMs = MAX_RECORD_MS }
     startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Unmounted during the permission prompt: release the mic immediately.
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       const mimeType =
         typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported("audio/webm")
@@ -76,8 +82,10 @@ export function useRecorder({ onBlob, onError, onCancel, maxMs = MAX_RECORD_MS }
   }, [cleanup, maxMs, stop]);
 
   // Unmount: drop the recording without emitting a blob.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       const rec = recRef.current;
       if (rec) {
         rec.onstop = null;
@@ -86,9 +94,8 @@ export function useRecorder({ onBlob, onError, onCancel, maxMs = MAX_RECORD_MS }
         cbRef.current.onCancel?.();
       }
       cleanup();
-    },
-    [cleanup],
-  );
+    };
+  }, [cleanup]);
 
   return { recording, elapsedMs, start, stop };
 }

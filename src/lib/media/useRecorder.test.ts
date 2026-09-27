@@ -8,7 +8,10 @@ class FakeRecorder {
   mimeType = "audio/webm";
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
-  constructor(public stream: unknown, public opts?: unknown) {}
+  static created = 0;
+  constructor(public stream: unknown, public opts?: unknown) {
+    FakeRecorder.created++;
+  }
   start() {
     this.state = "recording";
   }
@@ -91,5 +94,23 @@ describe("useRecorder", () => {
       await Promise.all([result.current.start(), result.current.start()]);
     });
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases mic if unmounted while permission is pending", async () => {
+    let resolve!: (s: unknown) => void;
+    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise((r) => (resolve = r)),
+    );
+    FakeRecorder.created = 0;
+    const { result, unmount } = renderHook(() => useRecorder({ onBlob: vi.fn(), onError: vi.fn() }));
+    let p!: Promise<void>;
+    act(() => {
+      p = result.current.start();
+    });
+    unmount();
+    resolve({ getTracks: () => [{ stop: trackStop }] });
+    await p;
+    expect(trackStop).toHaveBeenCalled();
+    expect(FakeRecorder.created).toBe(0);
   });
 });
