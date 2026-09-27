@@ -3,6 +3,7 @@ import type { ToolSchema } from "../llm/openai";
 import { mediaApi } from "../api/media";
 import { attachmentsApi } from "../api/attachments";
 import { skillsApi } from "../api/skills";
+import { semanticSearch } from "../semantic";
 import { MAX_DOC_CHARS, joinAttachmentPath } from "../media/paths";
 
 export const MAX_ATTACHMENT_TEXT = MAX_DOC_CHARS;
@@ -111,6 +112,14 @@ export const AGENT_TOOLS: ToolSchema[] = [
     properties: { name: { type: "string", description: "Tên skill" } },
     required: ["name"],
   }),
+  fn("semantic_search", "Tìm ghi chú theo ý nghĩa (embeddings), hữu ích khi không nhớ đúng từ khóa. Trả id, tiêu đề, điểm tương đồng.", {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Mô tả nội dung cần tìm" },
+      limit: { type: "integer", description: "Số kết quả (mặc định 8, tối đa 20)" },
+    },
+    required: ["query"],
+  }),
 ];
 
 function fn(name: string, description: string, parameters: Record<string, unknown>): ToolSchema {
@@ -197,10 +206,14 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
         if (!skill.enabled) return JSON.stringify({ error: `Skill "${skillName}" đang bị tắt` });
         return JSON.stringify({ name: skill.name, body: skill.body });
       }
+      case "semantic_search": {
+        const limit = Math.min(Math.max(1, args.limit ?? 8), 20);
+        return JSON.stringify(await semanticSearch(args.query ?? "", limit));
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
   } catch (e) {
-    return JSON.stringify({ error: String(e) });
+    return JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
   }
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseSseChunk, extractToolCallDelta } from "./openai";
+import { describe, it, expect, vi } from "vitest";
+import { parseSseChunk, extractToolCallDelta, embed } from "./openai";
 
 describe("parseSseChunk", () => {
   it("parses complete data events and returns remainder", () => {
@@ -48,5 +48,22 @@ describe("extractToolCallDelta", () => {
     extractToolCallDelta(calls, { index: 1, id: "b", name: "get_stats", args: "" });
     expect(Object.keys(calls).length).toBe(2);
     expect(calls[1]?.name).toBe("get_stats");
+  });
+});
+
+describe("embed", () => {
+  it("posts to /embeddings and sorts by index", async () => {
+    const f = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ index: 1, embedding: [2] }, { index: 0, embedding: [1] }] }), { status: 200 }),
+    );
+    const out = await embed({ baseUrl: "http://h", model: "e", inputs: ["a", "b"], fetchImpl: f as unknown as typeof fetch });
+    expect(out).toEqual([[1], [2]]);
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://h/v1/embeddings");
+    expect(JSON.parse(init.body as string)).toEqual({ model: "e", input: ["a", "b"] });
+  });
+  it("throws LLM status on error", async () => {
+    const f = vi.fn(async () => new Response("bad", { status: 401 }));
+    await expect(embed({ baseUrl: "http://h", model: "e", inputs: ["a"], fetchImpl: f as unknown as typeof fetch })).rejects.toThrow("LLM 401: bad");
   });
 });

@@ -6,6 +6,8 @@ export interface LlmProvider {
   baseUrl: string;
   model: string;
   apiKey: string;
+  embeddingModel?: string;
+  transcriptionModel?: string;
 }
 
 interface SettingsState {

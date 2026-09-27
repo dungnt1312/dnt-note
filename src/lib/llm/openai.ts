@@ -216,3 +216,28 @@ export function initLlmFetch(fetchImpl: typeof fetch): void {
 export function resetLlmFetch(): void {
   boundFetch = null;
 }
+
+export interface EmbedOptions {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  inputs: string[];
+  fetchImpl?: typeof fetch;
+}
+
+/** POST /embeddings → one vector per input, in input order. */
+export async function embed(options: EmbedOptions): Promise<number[][]> {
+  if (!options.inputs.length) return [];
+  const doFetch = options.fetchImpl ?? defaultFetch();
+  const res = await doFetch(providerUrl(options.baseUrl, "/embeddings"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
+    },
+    body: JSON.stringify({ model: options.model, input: options.inputs }),
+  });
+  if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  const json = (await res.json()) as { data?: { index: number; embedding: number[] }[] };
+  return [...(json.data ?? [])].sort((a, b) => a.index - b.index).map((d) => d.embedding);
+}

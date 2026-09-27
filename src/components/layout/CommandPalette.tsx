@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FileText,
+  Loader2,
   MessageSquare,
   Monitor,
   Moon,
   PanelLeft,
   Search,
+  ScanSearch,
   Settings,
   Sparkles,
   SquarePen,
@@ -17,6 +19,7 @@ import { useNotesStore } from "../../lib/store/notesStore";
 import { useChatStore } from "../../lib/store/chatStore";
 import { useUi } from "../../lib/store/uiStore";
 import { useTheme } from "../theme/ThemeProvider";
+import { semanticSearch, type SemanticResult } from "../../lib/semantic";
 import { fuzzyRank } from "../../lib/fuzzy";
 import { shortDate } from "../../lib/dates";
 import { cn } from "../../lib/utils";
@@ -25,12 +28,14 @@ import { ConfirmDialog, Overlay } from "../ui/Dialog";
 
 interface PaletteItem {
   id: string;
-  group: "Lệnh" | "Ghi chú gần đây" | "Ghi chú" | "Hội thoại";
+  group: "Lệnh" | "Ghi chú gần đây" | "Ghi chú" | "Hội thoại" | "Theo ý nghĩa";
   label: string;
   detail?: string;
   shortcut?: string;
   icon: ReactNode;
   run: () => void;
+  /** Keep the palette open after running (mode switches). */
+  keepOpen?: boolean;
 }
 
 export function CommandPalette() {
@@ -53,6 +58,31 @@ export function CommandPalette() {
   const [cursor, setCursor] = useState(0);
   const [confirmTrash, setConfirmTrash] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const [semantic, setSemantic] = useState<{ loading: boolean; error: string | null; results: SemanticResult[] }>({
+    loading: false,
+    error: null,
+    results: [],
+  });
+  const semanticMode = query.startsWith("?");
+  const semanticQuery = semanticMode ? query.slice(1).trim() : "";
+
+  useEffect(() => {
+    if (!semanticMode || !semanticQuery) {
+      setSemantic({ loading: false, error: null, results: [] });
+      return;
+    }
+    let cancelled = false;
+    setSemantic((s) => ({ ...s, loading: true, error: null }));
+    const t = setTimeout(() => {
+      semanticSearch(semanticQuery)
+        .then((results) => !cancelled && setSemantic({ loading: false, error: null, results }))
+        .catch((e) => !cancelled && setSemantic({ loading: false, error: e instanceof Error ? e.message : String(e), results: [] }));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [semanticMode, semanticQuery]);
 
   const close = () => {
     setOpen(false);
@@ -61,6 +91,19 @@ export function CommandPalette() {
   };
 
   const items = useMemo(() => {
+    if (semanticMode) {
+      return semantic.results.map<PaletteItem>((r) => ({
+        id: `sem-${r.id}`,
+        group: "Theo ý nghĩa",
+        label: r.title || "Chưa đặt tên",
+        detail: `${Math.round(r.score * 100)}%`,
+        icon: <FileText size={15} />,
+        run: () => {
+          setSection("notes");
+          void select(r.id);
+        },
+      }));
+    }
     const commands: PaletteItem[] = [
       { id: "new-note", group: "Lệnh", label: "Ghi chú mới", shortcut: "Ctrl N", icon: <SquarePen size={15} />, run: () => {
         setSection("notes");
@@ -70,6 +113,7 @@ export function CommandPalette() {
         void newChat();
         setSection("chat");
       } },
+      { id: "semantic", group: "Lệnh", label: "Tìm theo ý nghĩa…", detail: "gõ ? trước", icon: <ScanSearch size={15} />, keepOpen: true, run: () => setQuery("?") },
       { id: "go-notes", group: "Lệnh", label: "Đi tới Ghi chú", shortcut: "Ctrl 1", icon: <FileText size={15} />, run: () => setSection("notes") },
       { id: "go-chat", group: "Lệnh", label: "Đi tới Trợ lý AI", shortcut: "Ctrl 2", icon: <Sparkles size={15} />, run: () => setSection("chat") },
       { id: "side-chat", group: "Lệnh", label: "Mở trợ lý cạnh ghi chú", shortcut: "Ctrl ⇧ J", icon: <Sparkles size={15} />, run: () => {
@@ -112,7 +156,7 @@ export function CommandPalette() {
         },
       }));
     return [...cmd, ...noteItems, ...chatItems];
-  }, [query, notes, sessions, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme]);
+  }, [semanticMode, semantic.results, query, notes, sessions, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme]);
 
   useEffect(() => setCursor(0), [query]);
 
@@ -121,6 +165,10 @@ export function CommandPalette() {
   }, [cursor]);
 
   const runItem = (item: PaletteItem) => {
+    if (item.keepOpen) {
+      item.run();
+      return;
+    }
     close();
     item.run();
   };
@@ -149,7 +197,7 @@ export function CommandPalette() {
                 if (item) runItem(item);
               }
             }}
-            placeholder="Tìm ghi chú, hội thoại hoặc lệnh…"
+            placeholder="Tìm ghi chú, hội thoại hoặc lệnh… (? để tìm theo ý nghĩa)"
             aria-label="Tìm ghi chú, hội thoại hoặc lệnh"
             role="combobox"
             aria-expanded="true"
@@ -163,7 +211,21 @@ export function CommandPalette() {
         </div>
         <div className="h-px bg-hairline" />
         <div ref={listRef} id="palette-list" role="listbox" className="max-h-[380px] overflow-y-auto p-1.5">
-          {items.length === 0 && (
+          {semanticMode && semantic.loading && (
+            <p className="flex items-center justify-center gap-2 py-7 text-callout text-fg-secondary">
+              <Loader2 size={15} className="animate-spin" aria-hidden="true" /> Đang tìm theo ý nghĩa…
+            </p>
+          )}
+          {semanticMode && !semantic.loading && semantic.error && (
+            <p role="alert" className="px-3 py-7 text-center text-callout text-fg-secondary">{semantic.error}</p>
+          )}
+          {semanticMode && !semantic.loading && !semantic.error && !semanticQuery && (
+            <p className="py-7 text-center text-callout text-fg-secondary">Nhập mô tả nội dung cần tìm sau dấu “?”</p>
+          )}
+          {semanticMode && !semantic.loading && !semantic.error && semanticQuery && items.length === 0 && (
+            <p className="py-7 text-center text-callout text-fg-secondary">Không có kết quả</p>
+          )}
+          {!semanticMode && items.length === 0 && (
             <p className="py-7 text-center text-callout text-fg-secondary">Không có kết quả cho “{query}”</p>
           )}
           {items.map((item, i) => {

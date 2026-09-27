@@ -297,6 +297,8 @@ pub fn run() {
             commands::notes::list_tags,
             commands::notes::empty_trash,
             commands::stats::get_stats,
+            commands::semantic::load_embeddings,
+            commands::semantic::save_embeddings,
             commands::chats::list_chats,
             commands::chats::load_chat,
             commands::chats::save_chat,

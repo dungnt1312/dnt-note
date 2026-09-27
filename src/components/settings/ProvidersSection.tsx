@@ -122,6 +122,28 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
             autoComplete="off"
           />
         </Field>
+        <Field label="Model embeddings (tùy chọn)" htmlFor={id("embed")}>
+          <input
+            id={id("embed")}
+            value={provider.embeddingModel ?? ""}
+            onChange={(e) => void upsert(provider.id, { embeddingModel: e.target.value.trim() })}
+            className={input}
+            placeholder="text-embedding-3-small / nomic-embed-text"
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label="Model chuyển giọng nói (tùy chọn)" htmlFor={id("stt")}>
+          <input
+            id={id("stt")}
+            value={provider.transcriptionModel ?? ""}
+            onChange={(e) => void upsert(provider.id, { transcriptionModel: e.target.value.trim() })}
+            className={input}
+            placeholder="whisper-1"
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </Field>
         <Field label="API key" htmlFor={id("key")} className="col-span-2">
           <div className="relative">
             <input

@@ -40,6 +40,14 @@ vi.mock("../api/attachments", () => ({
   attachmentsApi: { extractText: vi.fn(async () => "x".repeat(25000)) },
 }));
 
+vi.mock("../store/settingsStore", () => ({
+  useSettingsStore: {
+    getState: () => ({
+      activeProvider: () => ({ id: "p", name: "P", baseUrl: "http://x", model: "m", apiKey: "" }),
+    }),
+  },
+}));
+
 import { api } from "../api/notes";
 import { mediaApi } from "../api/media";
 import { attachmentsApi } from "../api/attachments";
@@ -51,9 +59,9 @@ describe("AGENT_TOOLS", () => {
   const expected = [
     "list_notes", "search_notes", "read_note", "create_note", "update_note",
     "delete_note", "get_stats", "list_tags", "set_tags", "get_recent_notes",
-    "list_media", "read_attachment", "load_skill", "get_backlinks",
+    "list_media", "read_attachment", "load_skill", "get_backlinks", "semantic_search",
   ];
-  it("has exactly the 14 tools with descriptions and object parameters", () => {
+  it("has exactly the 15 tools with descriptions and object parameters", () => {
     expect(AGENT_TOOLS.map((t) => t.function.name).sort()).toEqual([...expected].sort());
     for (const t of AGENT_TOOLS) {
       expect(t.type).toBe("function");
@@ -159,5 +167,12 @@ describe("executeTool", () => {
   it("unknown tool returns error JSON", async () => {
     const out = await executeTool("nope", {});
     expect(JSON.parse(out)).toHaveProperty("error");
+  });
+});
+
+describe("semantic_search tool", () => {
+  it("returns a friendly error when no embedding model is configured", async () => {
+    const out = JSON.parse(await executeTool("semantic_search", { query: "abc" }));
+    expect(out.error).toContain("Chưa cấu hình model embeddings");
   });
 });
