@@ -11,7 +11,7 @@ const fakeFile = (bytes: number[], name: string, type = "image/png"): File =>
 
 beforeEach(() => {
   invoke.mockReset();
-  useComposerStore.setState({ drafts: {} });
+  useComposerStore.setState({ drafts: {}, pendingContext: null });
 });
 
 describe("composerStore attachments", () => {
@@ -106,6 +106,47 @@ describe("stripForPersist", () => {
     const atts = out.c1!.attachments;
     expect(atts).toHaveLength(1);
     expect(atts[0]).not.toHaveProperty("previewUrl");
+  });
+});
+
+describe("addSnippet (virtual document attachment)", () => {
+  it("appends a ready document without touching the filesystem", () => {
+    useComposerStore.getState().addSnippet("c1", { originalName: "Ghi chú A (đoạn chọn).md", text: "nội dung" });
+    const a = useComposerStore.getState().drafts.c1!.attachments[0]!;
+    expect(a).toMatchObject({
+      name: "",
+      originalName: "Ghi chú A (đoạn chọn).md",
+      kind: "document",
+      status: "ready",
+      text: "nội dung",
+    });
+    expect(a.size).toBe("nội dung".length);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("replaces an identical snippet instead of duplicating", () => {
+    const s = useComposerStore.getState();
+    s.addSnippet("c1", { originalName: "a.md", text: "same" });
+    s.addSnippet("c1", { originalName: "a.md", text: "same" });
+    expect(useComposerStore.getState().drafts.c1!.attachments).toHaveLength(1);
+  });
+
+  it("clips text at 20k like real document extracts", () => {
+    useComposerStore.getState().addSnippet("c1", { originalName: "a.md", text: "x".repeat(30_000) });
+    expect(useComposerStore.getState().drafts.c1!.attachments[0]!.text).toHaveLength(20_000);
+  });
+});
+
+describe("chat context bridge", () => {
+  it("takeChatContext returns null when empty", () => {
+    expect(useComposerStore.getState().takeChatContext()).toBeNull();
+  });
+
+  it("pushChatContext then takeChatContext returns and clears", () => {
+    useComposerStore.getState().pushChatContext({ kind: "note", noteId: "n1", title: "Ghi chú A" });
+    expect(useComposerStore.getState().pendingContext).toEqual({ kind: "note", noteId: "n1", title: "Ghi chú A" });
+    expect(useComposerStore.getState().takeChatContext()).toEqual({ kind: "note", noteId: "n1", title: "Ghi chú A" });
+    expect(useComposerStore.getState().pendingContext).toBeNull();
   });
 });
 

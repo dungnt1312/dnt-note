@@ -24,6 +24,11 @@ export interface ComposerDraft {
   attachments: DraftAttachment[];
 }
 
+/** One-shot handoff from the note editor's right-click menu to the composer. */
+export type PendingChatContext =
+  | { kind: "snippet"; title: string; text: string }
+  | { kind: "note"; noteId: string; title: string };
+
 const newId = () => `a_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 const ext = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
 const kindOf = (name: string): DraftAttachment["kind"] =>
@@ -31,11 +36,15 @@ const kindOf = (name: string): DraftAttachment["kind"] =>
 
 interface ComposerState {
   drafts: Record<string, ComposerDraft>;
+  pendingContext: PendingChatContext | null;
   setEditorState: (chatId: string, editorJson: string | null, text: string) => void;
   addAttachmentFiles: (chatId: string, files: File[]) => Promise<void>;
   addAttachmentPaths: (chatId: string, paths: string[]) => Promise<void>;
   removeAttachment: (chatId: string, id: string) => void;
   clearDraft: (chatId: string) => void;
+  addSnippet: (chatId: string, snippet: { originalName: string; text: string }) => void;
+  pushChatContext: (ctx: PendingChatContext) => void;
+  takeChatContext: () => PendingChatContext | null;
 }
 
 /** localStorage-safe view: no data URLs, no in-flight items, no empty drafts. */
@@ -53,8 +62,8 @@ export function stripForPersist(drafts: Record<string, ComposerDraft>): Record<s
 
 export const useComposerStore = create<ComposerState>()(
   persist(
-    (set) => {
-      const EMPTY = (): ComposerDraft => ({ editorJson: null, text: "", attachments: [] });
+      (set, get) => {
+        const EMPTY = (): ComposerDraft => ({ editorJson: null, text: "", attachments: [] });
       const patch = (chatId: string, fn: (d: ComposerDraft) => ComposerDraft) =>
         set((s) => ({ drafts: { ...s.drafts, [chatId]: fn(s.drafts[chatId] ?? EMPTY()) } }));
 
@@ -121,7 +130,36 @@ export const useComposerStore = create<ComposerState>()(
 
       return {
         drafts: {},
+        pendingContext: null,
         setEditorState: (chatId, editorJson, text) => patch(chatId, (d) => ({ ...d, editorJson, text })),
+
+        addSnippet: (chatId, { originalName, text }) => {
+          const clipped = text.slice(0, MAX_DOC_CHARS);
+          patch(chatId, (d) => ({
+            ...d,
+            attachments: [
+              ...d.attachments.filter(
+                (a) => !(a.status === "ready" && a.originalName === originalName && a.text === clipped),
+              ),
+              {
+                id: newId(),
+                name: "",
+                originalName,
+                size: clipped.length,
+                kind: "document" as const,
+                status: "ready" as const,
+                text: clipped,
+              },
+            ],
+          }));
+        },
+
+        pushChatContext: (ctx) => set({ pendingContext: ctx }),
+        takeChatContext: () => {
+          const ctx = get().pendingContext;
+          if (ctx) set({ pendingContext: null });
+          return ctx;
+        },
 
         addAttachmentFiles: async (chatId, files) => {
           for (const file of files) {
