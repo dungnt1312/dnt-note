@@ -214,6 +214,28 @@ function DeleteConfirmCard({ pending }: { pending: NonNullable<UiMessage["pendin
 function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?: () => void; busy: boolean }) {
   return (
     <div className="group flex flex-col items-end gap-1">
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+          {message.attachments.map((a) =>
+            a.kind === "image" && a.previewUrl ? (
+              <img
+                key={a.id}
+                src={a.previewUrl}
+                alt={a.originalName}
+                className="max-h-40 rounded-lg border border-hairline"
+              />
+            ) : (
+              <span
+                key={a.id}
+                className="inline-flex h-6 max-w-[220px] items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary"
+              >
+                <FileText size={11} aria-hidden="true" />
+                <span className="truncate">{a.originalName}</span>
+              </span>
+            ),
+          )}
+        </div>
+      )}
       {message.mentions && message.mentions.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1">
           {message.mentions.map((m) => (
@@ -222,22 +244,26 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
               className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary"
             >
               <FileText size={11} aria-hidden="true" />
-              {m.title}
+              {m.failed ? `${m.title} (không đọc được)` : m.title}
             </span>
           ))}
         </div>
       )}
-      <div className="max-w-[85%] select-text whitespace-pre-wrap break-words rounded-lg bg-bubble px-4 py-2.5 text-body text-fg">
-        {message.content}
-      </div>
-      <div className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        <CopyAction text={message.content} />
-        {onRetry && (
-          <HoverAction label="Gửi lại" onClick={onRetry} disabled={busy}>
-            <RotateCcw size={14} aria-hidden="true" />
-          </HoverAction>
-        )}
-      </div>
+      {message.content && (
+        <div className="max-w-[85%] select-text whitespace-pre-wrap break-words rounded-lg bg-bubble px-4 py-2.5 text-body text-fg">
+          {message.content}
+        </div>
+      )}
+      {message.content && (
+        <div className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <CopyAction text={message.content} />
+          {onRetry && (
+            <HoverAction label="Gửi lại" onClick={onRetry} disabled={busy}>
+              <RotateCcw size={14} aria-hidden="true" />
+            </HoverAction>
+          )}
+        </div>
+      )}
     </div>
   );
 }

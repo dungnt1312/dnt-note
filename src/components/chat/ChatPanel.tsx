@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, Sparkles, SquarePen, X } from "lucide-react";
 import { useChatStore } from "../../lib/store/chatStore";
+import { useComposerStore } from "../../lib/store/composerStore";
 import { useSettingsStore } from "../../lib/store/settingsStore";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
@@ -8,7 +9,7 @@ import { cn } from "../../lib/utils";
 import { ContentHeader } from "../layout/ContentHeader";
 import { IconButton } from "../ui/Button";
 import { MessageList } from "./MessageList";
-import { Composer, type ComposerHandle } from "./Composer";
+import { Composer, type ComposerHandle } from "./composer/Composer";
 import { ModelPicker } from "./ModelPicker";
 
 const SUGGESTIONS_SIDE = [
@@ -41,6 +42,8 @@ export function ChatPanel({ variant }: ChatPanelProps) {
 
   const scrollHost = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
+  const [dropping, setDropping] = useState(false);
+  const addFiles = useComposerStore((s) => s.addAttachmentFiles);
 
   useEffect(() => {
     if (!loaded) void loadStore();
@@ -128,10 +131,32 @@ export function ChatPanel({ variant }: ChatPanelProps) {
     <section
       aria-label="Trợ lý AI"
       className={cn(
-        "flex min-w-0 flex-col bg-app",
+        "relative flex min-w-0 flex-col bg-app",
         isSide ? "w-[384px] shrink-0 border-l border-hairline" : "flex-1",
       )}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          setDropping(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false);
+      }}
+      onDrop={(e) => {
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length) {
+          e.preventDefault();
+          setDropping(false);
+          void addFiles(useChatStore.getState().chatId, files);
+        }
+      }}
     >
+      {dropping && (
+        <div className="absolute inset-0 z-20 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-accent bg-app/85">
+          <p className="text-callout font-medium text-fg">Thả file để đính kèm</p>
+        </div>
+      )}
       <ContentHeader leading={headerLeading} trailing={headerTrailing} />
 
       {empty ? (
@@ -144,7 +169,7 @@ export function ChatPanel({ variant }: ChatPanelProps) {
               : "Hôm nay bạn cần giúp gì?"}
           </h2>
           {errorBanner}
-          <Composer ref={composerRef} placeholder={placeholder} compact={isSide} />
+          <Composer key={chatId} ref={composerRef} placeholder={placeholder} compact={isSide} />
           {suggestions}
         </div>
       ) : (
@@ -156,7 +181,7 @@ export function ChatPanel({ variant }: ChatPanelProps) {
           </div>
           <div className={cn("mx-auto w-full pb-2.5", column)}>
             {errorBanner}
-            <Composer ref={composerRef} placeholder={placeholder} compact={isSide} />
+            <Composer key={chatId} ref={composerRef} placeholder={placeholder} compact={isSide} />
             <p className="pt-1.5 text-center text-caption text-fg-tertiary">
               AI có thể mắc lỗi — hãy kiểm tra lại thông tin quan trọng.
             </p>
