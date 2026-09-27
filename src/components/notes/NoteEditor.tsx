@@ -14,11 +14,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
+import { useComposerStore } from "../../lib/store/composerStore";
 import { useUi } from "../../lib/store/uiStore";
 import { api } from "../../lib/api/notes";
 import { attachmentsApi } from "../../lib/api/attachments";
 import { isTauri } from "../../lib/env";
 import { editorSetup } from "../../lib/editor/editorSetup";
+import { getSelectionInfo } from "../../lib/editor/selection";
 import { fullDateTime, relativeTime } from "../../lib/dates";
 import { cn } from "../../lib/utils";
 import { ContentHeader } from "../layout/ContentHeader";
@@ -26,6 +28,7 @@ import { IconButton, Keycap, PillButton } from "../ui/Button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../ui/Menu";
 import { TagStrip } from "./TagStrip";
 import { FormatBar } from "./FormatBar";
+import { EditorContextMenu } from "./EditorContextMenu";
 import { useDeleteNote } from "./useDeleteNote";
 
 /** "✦ Trợ lý" capsule that docks the assistant panel next to the editor. */
@@ -97,10 +100,13 @@ export function NoteEditor() {
   const pushToast = useUi((s) => s.pushToast);
   // The docked assistant is the right-most pane and owns the caption buttons.
   const chatOpen = useUi((s) => s.chatOpen);
+  const setChatOpen = useUi((s) => s.setChatOpen);
+  const pushChatContext = useComposerStore((s) => s.pushChatContext);
   const deleteNote = useDeleteNote();
 
   const editorHost = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<EditorView | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
 
@@ -184,6 +190,34 @@ export function NoteEditor() {
       height: 1000,
     });
     pushToast({ message: "Đã mở cửa sổ in — chọn “Save as PDF”", durationMs: 5000 });
+  };
+
+  const openContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault(); // suppress the WebView2 native menu
+    if (!view) return;
+    const info = getSelectionInfo(view.state);
+    setCtxMenu({ x: e.clientX, y: e.clientY, hasSelection: info.hasSelection });
+  };
+
+  const sendSelectionToAssistant = () => {
+    if (!view) return;
+    const info = getSelectionInfo(view.state);
+    if (!info.hasSelection) return;
+    pushChatContext({ kind: "snippet", title: `${note.title || "ghi chú"} (đoạn chọn).md`, text: info.text });
+    setChatOpen(true);
+  };
+
+  const askAssistantAboutNote = () => {
+    pushChatContext({ kind: "note", noteId: note.id, title: note.title || "Ghi chú" });
+    setChatOpen(true);
+  };
+
+  const copySelection = () => {
+    if (!view) return;
+    const text = getSelectionInfo(view.state).text;
+    void navigator.clipboard.writeText(text).then(() =>
+      pushToast({ message: "Đã sao chép", durationMs: 3000 }),
+    );
   };
 
   const commitTitle = () => {
@@ -281,9 +315,21 @@ export function NoteEditor() {
           <div className="mb-4 mt-2.5">
             <TagStrip tags={note.tags} onChange={(tags) => void setTags(note.id, tags)} />
           </div>
-          <div ref={editorHost} />
+          <div ref={editorHost} onContextMenu={openContextMenu} />
         </div>
       </div>
+
+      {ctxMenu && (
+        <EditorContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          hasSelection={ctxMenu.hasSelection}
+          onClose={() => setCtxMenu(null)}
+          onSelection={sendSelectionToAssistant}
+          onWholeNote={askAssistantAboutNote}
+          onCopy={copySelection}
+        />
+      )}
     </main>
   );
 }
