@@ -53,7 +53,7 @@ export function stripForPersist(drafts: Record<string, ComposerDraft>): Record<s
 
 export const useComposerStore = create<ComposerState>()(
   persist(
-    (set, get) => {
+    (set) => {
       const EMPTY = (): ComposerDraft => ({ editorJson: null, text: "", attachments: [] });
       const patch = (chatId: string, fn: (d: ComposerDraft) => ComposerDraft) =>
         set((s) => ({ drafts: { ...s.drafts, [chatId]: fn(s.drafts[chatId] ?? EMPTY()) } }));
