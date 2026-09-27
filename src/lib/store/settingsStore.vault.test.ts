@@ -84,6 +84,27 @@ describe("settingsStore credential vault (Tauri)", () => {
     expect((disk.get("providers") as { keyInVault: boolean }[])[0].keyInVault).toBe(false);
   });
 
+  it("failed vault read never deletes the secret on later persist", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    secrets.get.mockRejectedValue(new Error("locked"));
+    disk.set("providers", [prov({ keyInVault: true })]);
+    vault.set("provider:p_1", "sk");
+    await useSettingsStore.getState().loadStore();
+    expect(useSettingsStore.getState().providers[0].vaultReadFailed).toBe(true);
+    expect(useUi.getState().toasts).toHaveLength(1);
+    await useSettingsStore.getState().upsertProvider("p_1", { model: "m2" });
+    expect(secrets.delete).not.toHaveBeenCalled();
+    expect(vault.get("provider:p_1")).toBe("sk");
+    const saved = (disk.get("providers") as Record<string, unknown>[])[0];
+    expect(saved.keyInVault).toBe(true);
+    expect(saved.vaultReadFailed).toBeUndefined();
+    // Explicit key edit clears the flag and takes effect.
+    await useSettingsStore.getState().upsertProvider("p_1", { apiKey: "" });
+    expect(useSettingsStore.getState().providers[0].vaultReadFailed).toBeUndefined();
+    expect(secrets.delete).toHaveBeenCalledWith("provider:p_1");
+    warn.mockRestore();
+  });
+
   it("removeProvider deletes the secret", async () => {
     disk.set("providers", [prov({ keyInVault: true })]);
     vault.set("provider:p_1", "sk");

@@ -12,6 +12,8 @@ export interface LlmProvider {
   transcriptionModel?: string;
   /** Persisted flag: the real apiKey lives in the OS credential vault. */
   keyInVault?: boolean;
+  /** In-memory only: vault read errored, so the vault state is unknown. */
+  vaultReadFailed?: boolean;
 }
 
 interface SettingsState {
@@ -83,29 +85,37 @@ function newId(): string {
 /** Test hook: drop cached store handle. */
 export function __resetStoreCache(): void {
   storeApi = null;
+  vaultWarned = false;
 }
 
 const secretKey = (id: string) => `provider:${id}`;
 let vaultWarned = false;
 
+function warnVaultOnce(): void {
+  if (vaultWarned) return;
+  vaultWarned = true;
+  useUi.getState().pushToast({
+    message: "Không dùng được kho khóa của hệ thống — khóa API vẫn lưu trong providers.json",
+    durationMs: 8000,
+  });
+}
+
 /** Moves API keys into the OS vault; returns provider objects safe to write to disk. */
 async function toPersisted(providers: LlmProvider[]): Promise<LlmProvider[]> {
-  if (!isTauri()) return providers;
+  const strip = ({ vaultReadFailed: _f, ...rest }: LlmProvider): LlmProvider => rest;
+  if (!isTauri()) return providers.map(strip);
   return Promise.all(
-    providers.map(async (p) => {
+    providers.map(async (full) => {
+      const p = strip(full);
+      // Unknown vault state: never touch the secret or the flag.
+      if (full.vaultReadFailed) return { ...p, apiKey: "", keyInVault: true };
       if (p.apiKey) {
         try {
           await secretsApi.set(secretKey(p.id), p.apiKey);
           return { ...p, apiKey: "", keyInVault: true };
         } catch (e) {
           console.warn("vault set failed", e);
-          if (!vaultWarned) {
-            vaultWarned = true;
-            useUi.getState().pushToast({
-              message: "Không dùng được kho khóa của hệ thống — khóa API vẫn lưu trong providers.json",
-              durationMs: 8000,
-            });
-          }
+          warnVaultOnce();
           return { ...p, keyInVault: false };
         }
       }
@@ -164,7 +174,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
                     return { ...p, apiKey: (await secretsApi.get(secretKey(p.id))) ?? "" };
                   } catch (e) {
                     console.warn("vault get failed", e);
-                    return { ...p, apiKey: "" };
+                    warnVaultOnce();
+                    return { ...p, apiKey: "", vaultReadFailed: true };
                   }
                 }
                 if (p.apiKey) migrate = true;
@@ -194,7 +205,12 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   upsertProvider: async (id, patch) => {
     set((s) => ({
-      providers: s.providers.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      providers: s.providers.map((x) => {
+        if (x.id !== id) return x;
+        const next = { ...x, ...patch };
+        if ("apiKey" in patch) delete next.vaultReadFailed;
+        return next;
+      }),
     }));
     await persist(get());
   },
