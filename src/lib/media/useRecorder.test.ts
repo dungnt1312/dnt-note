@@ -84,4 +84,12 @@ describe("useRecorder", () => {
     expect(trackStop).toHaveBeenCalled();
     expect(onBlob).not.toHaveBeenCalled();
   });
+
+  it("ignores concurrent start calls", async () => {
+    const { result } = renderHook(() => useRecorder({ onBlob: vi.fn(), onError: vi.fn() }));
+    await act(async () => {
+      await Promise.all([result.current.start(), result.current.start()]);
+    });
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+  });
 });

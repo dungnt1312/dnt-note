@@ -253,7 +253,12 @@ export interface TranscribeOptions {
 }
 
 /** POST /audio/transcriptions (multipart) → transcript text. */
+export const MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024;
+
 export async function transcribe(options: TranscribeOptions): Promise<string> {
+  if (options.audio.size > MAX_TRANSCRIBE_BYTES) {
+    throw new Error("Tệp ghi âm vượt quá 25MB — không thể chuyển thành chữ");
+  }
   const doFetch = options.fetchImpl ?? defaultFetch();
   const form = new FormData();
   form.append("file", options.audio, options.fileName);

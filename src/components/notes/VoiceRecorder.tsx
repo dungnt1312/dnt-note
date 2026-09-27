@@ -48,6 +48,13 @@ export function VoiceRecorder({ view, noteId }: { view: EditorView | null; noteI
         pushToast({ message: "Ghi chú đã đổi — bản ghi âm đã lưu vào thư viện media", durationMs: 6000 });
         return;
       }
+      if (countAttachmentRefs(v.state.doc.toString()) >= MAX_FILES_PER_NOTE) {
+        pushToast({
+          message: `Tối đa ${MAX_FILES_PER_NOTE} file đính kèm mỗi ghi chú — bản ghi âm chỉ lưu trong thư viện media`,
+          durationMs: 6000,
+        });
+        return;
+      }
       const at = getTracked(v.state, s.trackId) ?? v.state.selection.main.head;
       const end = insertLine(v, at, voiceLinkFor(markdownLinkFor(stored.name)));
       v.dispatch({ effects: setTracked.of({ id: s.trackId, pos: end }) });
@@ -70,6 +77,7 @@ export function VoiceRecorder({ view, noteId }: { view: EditorView | null; noteI
         fileName,
       });
       const quote = formatTranscript(text);
+      // Every branch below replaces the progress toast with a result toast.
       if (!alive()) {
         pushToast({ message: "Ghi chú đã đổi — bản ghi chữ chưa được chèn", durationMs: 6000 });
         return;
@@ -82,6 +90,7 @@ export function VoiceRecorder({ view, noteId }: { view: EditorView | null; noteI
       insertLine(v, pos, quote);
       pushToast({ message: "Đã chèn bản ghi chữ", durationMs: 3000 });
     } catch (e) {
+      // Also replaces a pending "Đang chuyển…" toast (single-toast store).
       pushToast({ message: `Không lưu/chuyển được ghi âm: ${errMsg(e)}`, durationMs: 6000 });
     } finally {
       release(s);
@@ -96,10 +105,16 @@ export function VoiceRecorder({ view, noteId }: { view: EditorView | null; noteI
       if (s) release(s);
       pushToast({ message: `Không truy cập được micro: ${errMsg(e)}`, durationMs: 6000 });
     },
+    onCancel: () => {
+      const s = session.current;
+      session.current = null;
+      if (s) release(s);
+      pushToast({ message: "Đã dừng ghi âm — bản ghi bị hủy", durationMs: 5000 });
+    },
   });
 
   const begin = () => {
-    if (!view || !noteId || !isTauri) return;
+    if (!view || !noteId || !isTauri || session.current) return;
     if (countAttachmentRefs(view.state.doc.toString()) >= MAX_FILES_PER_NOTE) {
       pushToast({ message: `Tối đa ${MAX_FILES_PER_NOTE} file đính kèm mỗi ghi chú`, durationMs: 5000 });
       return;

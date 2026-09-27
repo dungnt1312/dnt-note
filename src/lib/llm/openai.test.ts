@@ -96,4 +96,13 @@ describe("transcribe", () => {
     const fd = (f.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
     expect(fd.has("language")).toBe(false);
   });
+
+  it("rejects audio over 25MB before upload", async () => {
+    const f = vi.fn();
+    const big = { size: 25 * 1024 * 1024 + 1 } as Blob;
+    await expect(
+      transcribe({ baseUrl: "http://h", model: "m", audio: big, fileName: "x.webm", fetchImpl: f as unknown as typeof fetch }),
+    ).rejects.toThrow("25MB");
+    expect(f).not.toHaveBeenCalled();
+  });
 });

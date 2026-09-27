@@ -5,18 +5,21 @@ export const MAX_RECORD_MS = 10 * 60 * 1000;
 interface Options {
   onBlob: (blob: Blob) => void;
   onError: (e: unknown) => void;
+  /** Called when unmount discards an in-progress recording. */
+  onCancel?: () => void;
   maxMs?: number;
 }
 
 /** Microphone recorder: getUserMedia → MediaRecorder; tracks always released. */
-export function useRecorder({ onBlob, onError, maxMs = MAX_RECORD_MS }: Options) {
+export function useRecorder({ onBlob, onError, onCancel, maxMs = MAX_RECORD_MS }: Options) {
   const [recording, setRecording] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const recRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cbRef = useRef({ onBlob, onError });
-  cbRef.current = { onBlob, onError };
+  const startingRef = useRef(false);
+  const cbRef = useRef({ onBlob, onError, onCancel });
+  cbRef.current = { onBlob, onError, onCancel };
 
   const cleanup = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -32,7 +35,8 @@ export function useRecorder({ onBlob, onError, maxMs = MAX_RECORD_MS }: Options)
   }, [cleanup]);
 
   const start = useCallback(async () => {
-    if (recRef.current) return;
+    if (recRef.current || startingRef.current) return;
+    startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -66,6 +70,8 @@ export function useRecorder({ onBlob, onError, maxMs = MAX_RECORD_MS }: Options)
       cleanup();
       setRecording(false);
       cbRef.current.onError(e);
+    } finally {
+      startingRef.current = false;
     }
   }, [cleanup, maxMs, stop]);
 
@@ -77,6 +83,7 @@ export function useRecorder({ onBlob, onError, maxMs = MAX_RECORD_MS }: Options)
         rec.onstop = null;
         if (rec.state !== "inactive") rec.stop();
         recRef.current = null;
+        cbRef.current.onCancel?.();
       }
       cleanup();
     },
