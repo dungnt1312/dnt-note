@@ -225,12 +225,21 @@ impl NotesStore {
         n
     }
 
-    /// Names referenced as `(attachments/<name>)` across all note bodies.
+    /// Names referenced as `(attachments/<name>)` across every `.md` file in
+    /// the notes dir and `.trash/`. Raw text is scanned so trashed and
+    /// unparseable notes still keep their attachments alive.
     pub fn attachment_refs(&self) -> std::collections::HashSet<String> {
         let mut refs = std::collections::HashSet::new();
-        for id in self.index.keys() {
-            if let Ok(note) = self.read(id) {
-                refs.extend(crate::attachments::refs_in_body(&note.body));
+        for dir in [&self.dir, &self.trash_dir] {
+            let Ok(entries) = fs::read_dir(dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                if let Ok(text) = fs::read_to_string(&path) {
+                    refs.extend(crate::attachments::refs_in_body(&text));
+                }
             }
         }
         refs
@@ -314,6 +323,20 @@ mod tests {
         assert!(updated.pinned);
         assert!(updated.updated >= before);
         assert_eq!(updated.created, note.created);
+    }
+
+    #[test]
+    fn attachment_refs_include_trash_and_corrupt_files() {
+        let (_tmp, mut store) = setup();
+        store.create("live", "![a](attachments/live.png)", vec![]).unwrap();
+        let trashed = store.create("t", "![a](attachments/trashed (1).png)", vec![]).unwrap();
+        store.delete(&trashed.id).unwrap();
+        fs::write(store.dir.join("broken.md"), "no frontmatter [f](attachments/corrupt.pdf)").unwrap();
+        store.reload();
+        let refs = store.attachment_refs();
+        assert!(refs.contains("live.png"));
+        assert!(refs.contains("trashed (1).png"));
+        assert!(refs.contains("corrupt.pdf"));
     }
 
     #[test]

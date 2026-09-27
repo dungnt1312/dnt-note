@@ -87,6 +87,10 @@ fn do_sync(app: &AppHandle) {
         }
         Err(e) => eprintln!("sync failed: {e}"),
     }
+    let local_att = app_data_dir(app).join("attachments");
+    if let Err(e) = sync::mirror_attachments(&local_att, &target.join("attachments")) {
+        eprintln!("attachment sync failed: {e}");
+    }
 }
 
 fn show_main(app: &AppHandle) {
@@ -142,7 +146,11 @@ pub fn run() {
             {
                 let refs = notes_store.attachment_refs();
                 let att_dir = app_data_dir(&handle).join("attachments");
-                if let Err(e) = notes_core::attachments::cleanup_orphans(&att_dir, &refs) {
+                if let Err(e) = notes_core::attachments::cleanup_orphans(
+                    &att_dir,
+                    &refs,
+                    notes_core::attachments::ORPHAN_GRACE,
+                ) {
                     eprintln!("attachment cleanup: {e}");
                 }
             }

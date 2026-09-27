@@ -7,6 +7,8 @@ use std::path::Path;
 pub const MAX_FILE_BYTES: u64 = 25 * 1024 * 1024;
 pub const MAX_FILES_PER_NOTE: usize = 10;
 pub const MAX_IMAGE_EDGE_PX: u32 = 2048;
+/// Orphaned attachments younger than this are kept (the app passes it to `cleanup_orphans`).
+pub const ORPHAN_GRACE: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Extensions accepted as attachments (parity with NoteStudio).
 pub const ALLOWED_EXTENSIONS: &[&str] = &[
@@ -23,16 +25,36 @@ pub fn is_allowed(path: &Path) -> bool {
 }
 
 /// Names referenced as `(attachments/<name>)` in a note body.
+/// Parens inside the name must be balanced (e.g. `image (1).png`); a link
+/// that hits a newline before closing is ignored.
 pub fn refs_in_body(body: &str) -> Vec<String> {
+    const MARK: &str = "(attachments/";
     let mut out = Vec::new();
-    for rest in body.split("(attachments/") {
-        let Some(after) = rest.split_once(')') else {
-            continue;
-        };
-        let name = after.0.trim();
+    let mut rest = body;
+    while let Some(pos) = rest.find(MARK) {
+        rest = &rest[pos + MARK.len()..];
+        let mut depth = 1usize;
+        let mut end = None;
+        for (i, ch) in rest.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                '\n' => break,
+                _ => {}
+            }
+        }
+        let Some(end) = end else { continue };
+        let name = rest[..end].trim();
         if !name.is_empty() && !name.contains('/') && !name.contains('\\') {
             out.push(name.to_string());
         }
+        rest = &rest[end + 1..];
     }
     out
 }
@@ -149,8 +171,14 @@ pub fn prepare_image(path: &Path, max_px: u32) -> Result<String> {
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
-/// Delete files in attachments_dir not present in `referenced`. Returns count.
-pub fn cleanup_orphans(attachments_dir: &Path, referenced: &std::collections::HashSet<String>) -> Result<usize> {
+/// Delete files in attachments_dir not present in `referenced` and last
+/// modified more than `min_age` ago (grace period for files whose note has
+/// not been saved/synced yet). Returns count.
+pub fn cleanup_orphans(
+    attachments_dir: &Path,
+    referenced: &std::collections::HashSet<String>,
+    min_age: std::time::Duration,
+) -> Result<usize> {
     let mut removed = 0;
     if !attachments_dir.exists() {
         return Ok(0);
@@ -165,7 +193,16 @@ pub fn cleanup_orphans(attachments_dir: &Path, referenced: &std::collections::Ha
             .and_then(|n| n.to_str())
             .unwrap_or_default()
             .to_string();
-        if !referenced.contains(&name) {
+        if referenced.contains(&name) {
+            continue;
+        }
+        // Unknown mtime → treat as fresh (never delete on doubt).
+        let old_enough = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= min_age);
+        if old_enough {
             fs::remove_file(&path)?;
             removed += 1;
         }
@@ -183,6 +220,25 @@ mod tests {
     fn refs_in_body_finds_markdown_links() {
         let body = "ảnh: ![a](attachments/x-1.png)\nfile: [b](attachments/y-2.pdf)\nköd: (attachments/../etc)\nempty: ()";
         assert_eq!(refs_in_body(body), vec!["x-1.png", "y-2.pdf"]);
+    }
+
+    #[test]
+    fn refs_in_body_handles_balanced_parens() {
+        let body = "![a](attachments/x-image (1).png)\n[b](attachments/y.pdf)";
+        assert_eq!(refs_in_body(body), vec!["x-image (1).png", "y.pdf"]);
+        assert!(refs_in_body("(attachments/../e)").is_empty());
+        assert!(refs_in_body("(attachments/open\nnext)").is_empty());
+    }
+
+    #[test]
+    fn cleanup_orphans_skips_fresh_files() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("att");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("fresh.png"), "f").unwrap();
+        let refs = HashSet::new();
+        assert_eq!(cleanup_orphans(&dir, &refs, std::time::Duration::from_secs(3600)).unwrap(), 0);
+        assert!(dir.join("fresh.png").exists());
     }
 
     #[test]
@@ -263,9 +319,9 @@ mod tests {
         fs::write(dir.join("orphan.png"), "o").unwrap();
         let mut refs = HashSet::new();
         refs.insert("keep.png".to_string());
-        assert_eq!(cleanup_orphans(&dir, &refs).unwrap(), 1);
+        assert_eq!(cleanup_orphans(&dir, &refs, std::time::Duration::ZERO).unwrap(), 1);
         assert!(dir.join("keep.png").exists());
         assert!(!dir.join("orphan.png").exists());
-        assert_eq!(cleanup_orphans(&dir, &refs).unwrap(), 0);
+        assert_eq!(cleanup_orphans(&dir, &refs, std::time::Duration::ZERO).unwrap(), 0);
     }
 }

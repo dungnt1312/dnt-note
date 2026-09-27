@@ -114,5 +114,5 @@ pub fn cleanup_orphan_attachments(
 ) -> CmdResult<usize> {
     let dir = attachments_dir(&app)?;
     let refs = state.store.lock().map_err(err_of)?.attachment_refs();
-    notes_core::attachments::cleanup_orphans(&dir, &refs).map_err(err_of)
+    notes_core::attachments::cleanup_orphans(&dir, &refs, attachments::ORPHAN_GRACE).map_err(err_of)
 }
