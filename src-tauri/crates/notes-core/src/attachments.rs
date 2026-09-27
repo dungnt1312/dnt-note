@@ -84,6 +84,34 @@ pub fn save_file(attachments_dir: &Path, src: &Path) -> Result<String> {
     Ok(stored)
 }
 
+/// Write raw bytes into the attachments dir as `<uuid>-<file_name>` (paste/drop path).
+pub fn save_bytes(attachments_dir: &Path, file_name: &str, bytes: &[u8]) -> Result<String> {
+    let clean = Path::new(file_name);
+    if file_name.is_empty()
+        || file_name.contains('/')
+        || file_name.contains('\\')
+        || clean.file_name().and_then(|n| n.to_str()) != Some(file_name)
+    {
+        return Err(NoteError::Unknown("Tên file không hợp lệ".into()));
+    }
+    if !is_allowed(clean) {
+        return Err(NoteError::Unknown(format!(
+            "Định dạng không hỗ trợ: {}",
+            clean.extension().and_then(|e| e.to_str()).unwrap_or("?")
+        )));
+    }
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err(NoteError::Unknown(format!(
+            "File quá lớn ({:.1}MB, giới hạn 25MB)",
+            bytes.len() as f64 / (1024.0 * 1024.0)
+        )));
+    }
+    let stored = format!("{}-{}", uuid::Uuid::new_v4(), file_name);
+    fs::create_dir_all(attachments_dir)?;
+    fs::write(attachments_dir.join(&stored), bytes)?;
+    Ok(stored)
+}
+
 /// Plain-text-ish extraction for text/code/docx; images return a marker.
 /// PDF is handled by the app layer (heavier dependency).
 pub fn extract_text(path: &Path) -> Result<String> {
@@ -323,5 +351,24 @@ mod tests {
         assert!(dir.join("keep.png").exists());
         assert!(!dir.join("orphan.png").exists());
         assert_eq!(cleanup_orphans(&dir, &refs, std::time::Duration::ZERO).unwrap(), 0);
+    }
+
+    #[test]
+    fn save_bytes_round_trip_and_name() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("att");
+        let stored = save_bytes(&dir, "slide deck.pdf", b"pdf-bytes").unwrap();
+        assert!(stored.ends_with("-slide deck.pdf"));
+        assert_eq!(fs::read(dir.join(&stored)).unwrap(), b"pdf-bytes");
+    }
+
+    #[test]
+    fn save_bytes_rejects_bad_input() {
+        let dir = std::env::temp_dir();
+        assert!(save_bytes(&dir, "virus.exe", b"x").is_err()); // extension allowlist
+        assert!(save_bytes(&dir, "../escape.png", b"x").is_err()); // no path separators
+        assert!(save_bytes(&dir, "", b"x").is_err()); // empty name
+        let big = vec![0u8; (MAX_FILE_BYTES + 1) as usize];
+        assert!(save_bytes(&dir, "big.png", &big).is_err()); // size cap
     }
 }

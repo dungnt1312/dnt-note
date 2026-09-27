@@ -25,6 +25,18 @@ fn attachments_dir(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
 pub struct StoredFile {
     pub name: String,
     pub size: u64,
+    /// Absolute path of the stored file (for prepare/extract follow-ups).
+    pub path: String,
+}
+
+/// Resolve a user-provided path: absolute → as-is, bare name → inside attachments/.
+fn resolve_attachment_path(app: &tauri::AppHandle, input: &str) -> CmdResult<PathBuf> {
+    let p = PathBuf::from(input);
+    if p.is_absolute() {
+        Ok(p)
+    } else {
+        Ok(attachments_dir(app)?.join(p))
+    }
 }
 
 /// Copy `src_path` into attachments/ and append a markdown reference to the note body.
@@ -76,7 +88,32 @@ pub fn attach_file(
         })
         .map_err(err_of)?;
 
-    Ok(StoredFile { name: stored_name, size })
+    let path = dir.join(&stored_name).to_string_lossy().into_owned();
+    Ok(StoredFile { name: stored_name, size, path })
+}
+
+/// Copy a file into attachments/ WITHOUT touching any note (chat composer).
+#[tauri::command]
+pub fn import_attachment(app: tauri::AppHandle, src_path: String) -> CmdResult<StoredFile> {
+    let dir = attachments_dir(&app)?;
+    let stored_name = attachments::save_file(&dir, &PathBuf::from(&src_path)).map_err(err_of)?;
+    let path = dir.join(&stored_name);
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    Ok(StoredFile { name: stored_name, size, path: path.to_string_lossy().into_owned() })
+}
+
+/// Import raw bytes (clipboard paste / drag-drop File) into attachments/.
+#[tauri::command]
+pub fn import_attachment_bytes(
+    app: tauri::AppHandle,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> CmdResult<StoredFile> {
+    let dir = attachments_dir(&app)?;
+    let stored_name = attachments::save_bytes(&dir, &file_name, &bytes).map_err(err_of)?;
+    let path = dir.join(&stored_name);
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    Ok(StoredFile { name: stored_name, size, path: path.to_string_lossy().into_owned() })
 }
 
 #[tauri::command]
@@ -87,8 +124,8 @@ pub fn list_attachments(state: State<AppState>, note_id: String) -> CmdResult<Ve
 }
 
 #[tauri::command]
-pub fn extract_attachment_text(path: String) -> CmdResult<String> {
-    let p = PathBuf::from(&path);
+pub fn extract_attachment_text(app: tauri::AppHandle, path: String) -> CmdResult<String> {
+    let p = resolve_attachment_path(&app, &path)?;
     if p.extension()
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case("pdf"))
@@ -102,9 +139,9 @@ pub fn extract_attachment_text(path: String) -> CmdResult<String> {
 }
 
 #[tauri::command]
-pub fn prepare_attachment_image(path: String) -> CmdResult<String> {
-    notes_core::attachments::prepare_image(&PathBuf::from(&path), attachments::MAX_IMAGE_EDGE_PX)
-        .map_err(err_of)
+pub fn prepare_attachment_image(app: tauri::AppHandle, path: String) -> CmdResult<String> {
+    let p = resolve_attachment_path(&app, &path)?;
+    notes_core::attachments::prepare_image(&p, attachments::MAX_IMAGE_EDGE_PX).map_err(err_of)
 }
 
 #[tauri::command]

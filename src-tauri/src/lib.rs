@@ -270,6 +270,8 @@ pub fn run() {
             commands::chats::save_chat,
             commands::chats::delete_chat,
             commands::attachments::attach_file,
+            commands::attachments::import_attachment,
+            commands::attachments::import_attachment_bytes,
             commands::attachments::list_attachments,
             commands::attachments::extract_attachment_text,
             commands::attachments::prepare_attachment_image,
