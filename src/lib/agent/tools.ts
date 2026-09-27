@@ -185,7 +185,7 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
       }
       case "load_skill": {
         const skillName = args.name ?? "";
-        if (!skillName) return JSON.stringify({ error: "Thiếu tên skill" });
+        if (!/^[a-z0-9-]{1,64}$/.test(skillName)) return JSON.stringify({ error: "Tên skill không hợp lệ" });
         const skill = await skillsApi.read(skillName);
         if (!skill.enabled) return JSON.stringify({ error: `Skill "${skillName}" đang bị tắt` });
         return JSON.stringify({ name: skill.name, body: skill.body });

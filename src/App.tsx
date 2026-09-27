@@ -175,6 +175,13 @@ function Shell() {
     void useSkillsStore.getState().load();
   }, [load]);
 
+  useEffect(() => {
+    // Skills can be edited on disk; refresh cheaply when the window regains focus.
+    const reload = () => void useSkillsStore.getState().load();
+    window.addEventListener("focus", reload);
+    return () => window.removeEventListener("focus", reload);
+  }, []);
+
   return (
     <div className="flex h-screen min-h-0 bg-app text-fg">
       <Sidebar />

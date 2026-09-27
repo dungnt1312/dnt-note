@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderOpen, Pencil, Plus, Trash2 } from "lucide-react";
 import { skillsApi, type Skill, type SkillMeta } from "../../lib/api/skills";
 import { SKILL_NAME_RE, useSkillsStore } from "../../lib/store/skillsStore";
@@ -143,6 +143,10 @@ export function SkillsSection() {
   const pushToast = useUi((s) => s.pushToast);
   const [editing, setEditing] = useState<{ skill: Skill; isNew: boolean } | null>(null);
   const [deleting, setDeleting] = useState<SkillMeta | null>(null);
+
+  useEffect(() => {
+    void useSkillsStore.getState().load();
+  }, []);
 
   const fail = (e: unknown) => pushToast({ message: errMsg(e), durationMs: 5000 });
 

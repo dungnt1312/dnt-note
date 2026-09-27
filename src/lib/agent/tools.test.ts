@@ -69,6 +69,12 @@ describe("executeTool", () => {
     expect(JSON.parse(await executeTool("load_skill", { name: "ok" }))).toEqual({ name: "ok", body: "BODY" });
     expect(JSON.parse(await executeTool("load_skill", { name: "off" })).error).toBeTruthy();
     expect(JSON.parse(await executeTool("load_skill", { name: "nope" })).error).toBeTruthy();
+    const { skillsApi } = await import("../api/skills");
+    vi.mocked(skillsApi.read).mockClear();
+    for (const bad of ["../x", "A", "a b", "", "x".repeat(65)]) {
+      expect(JSON.parse(await executeTool("load_skill", { name: bad })).error).toBeTruthy();
+    }
+    expect(skillsApi.read).not.toHaveBeenCalled();
     const schema = AGENT_TOOLS.find((t) => t.function.name === "load_skill");
     expect(schema?.function.parameters).toMatchObject({ required: ["name"] });
   });

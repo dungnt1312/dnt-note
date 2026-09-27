@@ -1,9 +1,12 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ArrowUp, AtSign, FileText, Loader2, Paperclip, Plus, X, Zap } from "lucide-react";
+import { ArrowUp, AtSign, FileText, Loader2, Paperclip, Plus, Zap } from "lucide-react";
 import { useChatStore, type ChatFileInput } from "../../lib/store/chatStore";
 import { useUi } from "../../lib/store/uiStore";
-import { useSkillsStore } from "../../lib/store/skillsStore";
 import type { SkillMeta } from "../../lib/api/skills";
+import { mentionQuery, slashQuery } from "./queries";
+import { SuggestionMenu } from "./SuggestionMenu";
+import { ChipRow } from "./ChipRow";
+import { useSkillPicker } from "./useSkillPicker";
 import { isTauri } from "../../lib/env";
 import { ATTACHABLE } from "../../lib/media/extensions";
 import {
@@ -19,21 +22,8 @@ import type { NoteMeta } from "../../lib/api/notes";
 import { fuzzyRank } from "../../lib/fuzzy";
 import { cn, errMsg } from "../../lib/utils";
 
-/** Detects an active @mention query right before the caret. */
-export function mentionQuery(text: string, caret: number): string | null {
-  const before = text.slice(0, caret);
-  const m = /(?:^|\s)@([^\s@]*)$/.exec(before);
-  return m ? m[1] : null;
-}
-
-/** Detects an active /skill query right before the caret. */
-export function slashQuery(text: string, caret: number): string | null {
-  const before = text.slice(0, caret);
-  const m = /(?:^|\s)\/([^\s/]*)$/.exec(before);
-  return m ? m[1] : null;
-}
-
-export const MAX_COMPOSER_SKILLS = 3;
+export { mentionQuery, slashQuery } from "./queries";
+export { MAX_COMPOSER_SKILLS } from "./useSkillPicker";
 
 export interface ComposerHandle {
   focus: () => void;
@@ -54,8 +44,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const status = useChatStore((s) => s.status);
   const notes = useNotesStore((s) => s.notes);
   const selectedId = useNotesStore((s) => s.selectedId);
-  const allSkills = useSkillsStore((s) => s.skills);
-  const [skills, setSkills] = useState<string[]>([]);
 
   const [draft, setDraft] = useState("");
   const [mentions, setMentions] = useState<Mention[]>([]);
@@ -134,27 +122,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       .map((r) => r.item);
   }, [query, notes]);
   const sQuery = dismissed || query !== null ? null : slashQuery(draft, caret);
-  const skillCandidates: SkillMeta[] = useMemo(() => {
-    if (sQuery === null) return [];
-    const enabled = allSkills.filter((sk) => sk.enabled && !skills.includes(sk.name));
-    return fuzzyRank(enabled, sQuery, (sk) => `${sk.name} ${sk.description}`)
-      .slice(0, 8)
-      .map((r) => r.item);
-  }, [sQuery, allSkills, skills]);
+  const skillPicker = useSkillPicker(sQuery);
+  const skillCandidates = skillPicker.candidates;
   const menuMode: "mention" | "skill" | null =
     candidates.length > 0 ? "mention" : skillCandidates.length > 0 ? "skill" : null;
   const menuOpen = menuMode !== null;
   const menuCount = menuMode === "mention" ? candidates.length : skillCandidates.length;
 
   const insertSkill = (sk: SkillMeta) => {
-    if (skills.length >= MAX_COMPOSER_SKILLS) {
-      useUi.getState().pushToast({ message: `Tối đa ${MAX_COMPOSER_SKILLS} skill mỗi tin nhắn`, durationMs: 4000 });
-      return;
-    }
+    if (!skillPicker.add(sk.name)) return;
     const before = draft.slice(0, caret).replace(/\/([^\s/]*)$/, "");
     const next = before + draft.slice(caret);
     setDraft(next);
-    setSkills((all) => (all.includes(sk.name) ? all : [...all, sk.name]));
     setCursor(0);
     requestAnimationFrame(() => {
       const el = textareaRef.current;
@@ -209,10 +188,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if ((!text && files.length === 0) || status === "streaming" || preparing > 0) return;
     const pending = mentions;
     const pendingFiles = files;
-    const pendingSkills = skills;
     setDraft("");
     setMentions([]);
-    setSkills([]);
+    const skillsPromise = skillPicker.take();
     setFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     const { api } = await import("../../lib/api/notes");
@@ -226,17 +204,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         }
       }),
     );
-    const resolvedSkills: { name: string; body: string }[] = [];
-    if (pendingSkills.length) {
-      const { skillsApi } = await import("../../lib/api/skills");
-      for (const name of pendingSkills) {
-        try {
-          resolvedSkills.push({ name, body: (await skillsApi.read(name)).body });
-        } catch (e) {
-          useUi.getState().pushToast({ message: `Không đọc được skill ${name}: ${errMsg(e)}`, durationMs: 5000 });
-        }
-      }
-    }
+    const resolvedSkills = await skillsPromise;
     await send(text, resolved, pendingFiles, resolvedSkills);
   };
 
@@ -264,136 +232,73 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       }}
     >
       {menuMode === "skill" && (
-        <div
-          role="listbox"
-          id="mention-list"
-          aria-label="Chọn skill"
-          className="absolute bottom-full left-0 right-0 mb-2 max-h-[300px] overflow-y-auto rounded-[16px] border border-composer-border bg-popover p-1.5 shadow-popover"
-        >
-          <div className="px-2.5 pb-1 pt-1 text-caption font-medium text-fg-secondary">Dùng skill</div>
-          {skillCandidates.map((sk, i) => (
-            <button
-              key={sk.name}
-              type="button"
-              role="option"
-              aria-selected={i === cursor}
-              onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setCursor(i)}
-              onClick={() => insertSkill(sk)}
-              className={cn(
-                "flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-left",
-                i === cursor && "bg-hover",
-              )}
-            >
-              <Zap size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-callout font-medium text-fg">{sk.name}</span>
-                <span className="block truncate text-caption text-fg-secondary">{sk.description}</span>
-              </span>
-            </button>
-          ))}
-        </div>
+        <SuggestionMenu
+          id="skill-list"
+          label="Chọn skill"
+          heading="Dùng skill"
+          cursor={cursor}
+          onHover={setCursor}
+          onPick={pickMenu}
+          items={skillCandidates.map((sk) => ({
+            key: sk.name,
+            icon: <Zap size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />,
+            title: sk.name,
+            subtitle: sk.description,
+          }))}
+        />
       )}
       {menuMode === "mention" && (
-        <div
-          role="listbox"
+        <SuggestionMenu
           id="mention-list"
-          aria-label="Chọn ghi chú"
-          className="absolute bottom-full left-0 right-0 mb-2 max-h-[300px] overflow-y-auto rounded-[16px] border border-composer-border bg-popover p-1.5 shadow-popover"
-        >
-          <div className="px-2.5 pb-1 pt-1 text-caption font-medium text-fg-secondary">Nhắc tới ghi chú</div>
-          {candidates.map((n, i) => (
-            <button
-              key={n.id}
-              type="button"
-              role="option"
-              aria-selected={i === cursor}
-              onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setCursor(i)}
-              onClick={() => insertMention(n)}
-              className={cn(
-                "flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-left",
-                i === cursor && "bg-hover",
-              )}
-            >
-              <FileText size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-callout font-medium text-fg">{n.title}</span>
-                <span className="block truncate text-caption text-fg-secondary">{n.snippet || "Chưa có nội dung"}</span>
-              </span>
-            </button>
-          ))}
-        </div>
+          label="Chọn ghi chú"
+          heading="Nhắc tới ghi chú"
+          cursor={cursor}
+          onHover={setCursor}
+          onPick={pickMenu}
+          items={candidates.map((n) => ({
+            key: n.id,
+            icon: <FileText size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />,
+            title: n.title,
+            subtitle: n.snippet || "Chưa có nội dung",
+          }))}
+        />
       )}
 
-      {skills.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
-          {skills.map((name) => (
-            <span
-              key={name}
-              className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[10px] border border-composer-border bg-control pl-2 pr-1 text-footnote text-fg"
-            >
-              <Zap size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />
-              <span className="truncate">{name}</span>
-              <button
-                type="button"
-                aria-label={`Bỏ skill ${name}`}
-                onClick={() => setSkills((all) => all.filter((x) => x !== name))}
-                className="flex size-5 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
-              >
-                <X size={11} aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
+      <ChipRow
+        chips={[
+          ...skillPicker.selected.map((name) => ({
+            key: `s:${name}`,
+            icon: <Zap size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />,
+            label: name,
+            removeLabel: `Bỏ skill ${name}`,
+            onRemove: () => skillPicker.remove(name),
+          })),
+          ...mentions.map((m) => ({
+            key: `m:${m.id}`,
+            icon: <FileText size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />,
+            label: m.title,
+            removeLabel: `Bỏ đính kèm ${m.title}`,
+            onRemove: () => setMentions((all) => all.filter((x) => x.id !== m.id)),
+          })),
+        ]}
+      />
 
-      {mentions.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
-          {mentions.map((m) => (
-            <span
-              key={m.id}
-              className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[10px] border border-composer-border bg-control pl-2 pr-1 text-footnote text-fg"
-            >
+      <ChipRow
+        chips={files.map((f) => ({
+          key: f.name,
+          icon:
+            f.kind === "image" && f.dataUrl ? (
+              <img src={f.dataUrl} alt="" className="size-4 shrink-0 rounded object-cover" />
+            ) : (
               <FileText size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />
-              <span className="truncate">{m.title}</span>
-              <button
-                type="button"
-                aria-label={`Bỏ đính kèm ${m.title}`}
-                onClick={() => setMentions((all) => all.filter((x) => x.id !== m.id))}
-                className="flex size-5 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
-              >
-                <X size={11} aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {(files.length > 0 || preparing > 0) && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
-          {files.map((f) => (
-            <span
-              key={f.name}
-              className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[10px] border border-composer-border bg-control pl-2 pr-1 text-footnote text-fg"
-            >
-              {f.kind === "image" && f.dataUrl ? (
-                <img src={f.dataUrl} alt="" className="size-4 shrink-0 rounded object-cover" />
-              ) : (
-                <FileText size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />
-              )}
-              <span className="truncate">{displayName(f.name)}</span>
-              <button
-                type="button"
-                aria-label={`Bỏ tệp ${displayName(f.name)}`}
-                onClick={() => setFiles((all) => all.filter((x) => x.name !== f.name))}
-                className="flex size-5 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
-              >
-                <X size={11} aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-          {Array.from({ length: preparing }, (_, i) => (
+            ),
+          label: displayName(f.name),
+          removeLabel: `Bỏ tệp ${displayName(f.name)}`,
+          onRemove: () => setFiles((all) => all.filter((x) => x.name !== f.name)),
+        }))}
+      >
+        {preparing > 0 &&
+          Array.from({ length: preparing }, (_, i) => (
             <span
               key={`prep-${i}`}
               role="status"
@@ -404,8 +309,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               Đang chuẩn bị…
             </span>
           ))}
-        </div>
-      )}
+      </ChipRow>
 
       <textarea
         ref={textareaRef}
@@ -413,7 +317,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         rows={1}
         aria-label="Tin nhắn cho trợ lý"
         aria-autocomplete="list"
-        aria-controls={menuOpen ? "mention-list" : undefined}
+        aria-controls={menuMode === "skill" ? "skill-list" : menuMode === "mention" ? "mention-list" : undefined}
         aria-expanded={menuOpen}
         placeholder={placeholder}
         onChange={(e) => {
