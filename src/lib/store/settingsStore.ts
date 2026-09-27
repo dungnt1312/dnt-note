@@ -131,7 +131,24 @@ async function toPersisted(providers: LlmProvider[]): Promise<LlmProvider[]> {
   );
 }
 
-async function persist(state: SettingsState): Promise<void> {
+let persistChain: Promise<void> = Promise.resolve();
+let persistQueued: Promise<void> | null = null;
+
+/** Serialized persist: runs after the previous one, always with the latest state; coalesces queued calls. */
+function persist(_state?: SettingsState): Promise<void> {
+  if (persistQueued) return persistQueued;
+  const run = persistChain
+    .catch(() => {})
+    .then(() => {
+      persistQueued = null;
+      return persistNow(useSettingsStore.getState());
+    });
+  persistQueued = run;
+  persistChain = run;
+  return run;
+}
+
+async function persistNow(state: SettingsState): Promise<void> {
   const store = await getStore();
   if (!store) return;
   const persisted = await toPersisted(state.providers);

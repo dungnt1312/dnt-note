@@ -105,6 +105,53 @@ describe("settingsStore credential vault (Tauri)", () => {
     warn.mockRestore();
   });
 
+  it("serializes rapid persists; last key wins, set order preserved", async () => {
+    disk.set("providers", [prov({ keyInVault: true })]);
+    vault.set("provider:p_1", "sk0");
+    await useSettingsStore.getState().loadStore();
+    const calls: string[] = [];
+    const gates: (() => void)[] = [];
+    secrets.set.mockImplementation(
+      (k: string, v: string) =>
+        new Promise<void>((res) => {
+          calls.push(v);
+          gates.push(() => {
+            vault.set(k, v);
+            res();
+          });
+        }),
+    );
+    const a = useSettingsStore.getState().upsertProvider("p_1", { apiKey: "k1" });
+    await vi.waitFor(() => expect(gates).toHaveLength(1));
+    const b = useSettingsStore.getState().upsertProvider("p_1", { apiKey: "kx" });
+    const c = useSettingsStore.getState().upsertProvider("p_1", { apiKey: "k2" });
+    // Queued persist must not start while the first is blocked.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls).toEqual(["k1"]);
+    gates[0]();
+    await vi.waitFor(() => expect(gates).toHaveLength(2));
+    gates[1]();
+    await Promise.all([a, b, c]);
+    expect(calls).toEqual(["k1", "k2"]);
+    expect(vault.get("provider:p_1")).toBe("k2");
+    expect((disk.get("providers") as Record<string, unknown>[])[0]).toMatchObject({ apiKey: "", keyInVault: true });
+    expect(useSettingsStore.getState().providers[0].apiKey).toBe("k2");
+  });
+
+  it("secret_delete failure warns and still persists", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    secrets.delete.mockRejectedValue(new Error("denied"));
+    disk.set("providers", [prov({ keyInVault: true })]);
+    vault.set("provider:p_1", "sk");
+    await useSettingsStore.getState().loadStore();
+    await useSettingsStore.getState().upsertProvider("p_1", { apiKey: "", model: "m9" });
+    expect(warn).toHaveBeenCalledWith("vault delete failed", expect.any(Error));
+    expect((disk.get("providers") as Record<string, unknown>[])[0]).toMatchObject({ model: "m9", keyInVault: false });
+    await useSettingsStore.getState().removeProvider("p_1");
+    expect(disk.get("providers")).toEqual([]);
+    warn.mockRestore();
+  });
+
   it("removeProvider deletes the secret", async () => {
     disk.set("providers", [prov({ keyInVault: true })]);
     vault.set("provider:p_1", "sk");
