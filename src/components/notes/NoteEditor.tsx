@@ -243,7 +243,12 @@ export function NoteEditor() {
 
   const exportPdf = async () => {
     if (!isTauri) return;
-    await flushSave();
+    try {
+      await flushSave();
+    } catch (e) {
+      pushToast({ message: errMsg(e), durationMs: 6000 });
+      return;
+    }
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     void new WebviewWindow(`print-${note.id.slice(0, 8)}-${Date.now()}`, {
       url: `index.html?print=${note.id}`,

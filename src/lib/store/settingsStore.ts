@@ -135,7 +135,7 @@ let persistChain: Promise<void> = Promise.resolve();
 let persistQueued: Promise<void> | null = null;
 
 /** Serialized persist: runs after the previous one, always with the latest state; coalesces queued calls. */
-function persist(_state?: SettingsState): Promise<void> {
+function persist(): Promise<void> {
   if (persistQueued) return persistQueued;
   const run = persistChain
     .catch(() => {})
@@ -180,7 +180,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         // First run: seed the local Ollama preset so chat works out of the box.
         const first: LlmProvider = { id: newId(), ...PROVIDER_PRESETS[0], apiKey: "" };
         set({ providers: [first], activeProviderId: first.id, loaded: true });
-        await persist(get());
+        await persist();
       } else {
         let migrate = false;
         const loadedProviders = isTauri()
@@ -201,7 +201,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
             )
           : providers;
         set({ providers: loadedProviders, activeProviderId, loaded: true });
-        if (migrate) await persist(get());
+        if (migrate) await persist();
       }
     } catch (e) {
       console.error("settings load failed", e);
@@ -217,7 +217,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         activeProviderId: s.activeProviderId ?? provider.id,
       };
     });
-    await persist(get());
+    await persist();
   },
 
   upsertProvider: async (id, patch) => {
@@ -229,7 +229,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         return next;
       }),
     }));
-    await persist(get());
+    await persist();
   },
 
   removeProvider: async (id) => {
@@ -244,12 +244,12 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       providers: s.providers.filter((x) => x.id !== id),
       activeProviderId: s.activeProviderId === id ? null : s.activeProviderId,
     }));
-    await persist(get());
+    await persist();
   },
 
   setSemanticIndexing: async (on) => {
     set({ semanticIndexing: on });
-    await persist(get());
+    await persist();
   },
 
   setActiveProvider: (id) => set({ activeProviderId: id }),

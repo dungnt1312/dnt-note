@@ -104,7 +104,7 @@ export function TrashSection() {
           void api.notes
             .emptyTrash()
             .then((n) => pushToast({ message: `Đã xóa vĩnh viễn ${n} ghi chú`, durationMs: 4000 }))
-            .catch((e) => pushToast({ message: `Không dọn được thùng rác: ${e}`, durationMs: 6000 }))
+            .catch((e) => pushToast({ message: `Không dọn được thùng rác: ${errMsg(e)}`, durationMs: 6000 }))
             .finally(refresh);
         }}
       />

@@ -105,6 +105,9 @@ pub fn list_media(dir: &Path, store: &NotesStore) -> Result<Vec<MediaItem>> {
         let Some(name) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
             continue;
         };
+        if crate::attachments::is_temp_name(&name) {
+            continue;
+        }
         let meta = entry.metadata()?;
         let modified = meta.modified().map(DateTime::<Utc>::from).unwrap_or_else(|_| Utc::now());
         let used_by = notes

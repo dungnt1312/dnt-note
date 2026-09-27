@@ -18,6 +18,7 @@ export function markdownLinkFor(stored: string): string {
 /** Mirrors Rust `is_safe_name`. */
 export function isSafeName(name: string): boolean {
   if (!name || name === "." || name === "..") return false;
+  if (name.endsWith(".") || name.endsWith(" ")) return false;
   for (const c of name) {
     if (c === "/" || c === "\\" || c === ":" || c.charCodeAt(0) < 0x20) return false;
   }
@@ -81,9 +82,14 @@ export function targetCandidates(raw: string): string[] {
   return out;
 }
 
-/** Distinct attachment link targets (by raw text); mirrors Rust `unique_ref_count`. */
+/** Distinct files by canonical (decoded when safe) name; mirrors Rust `unique_ref_count`. */
 export function countAttachmentRefs(body: string): number {
-  return new Set(linkTargets(body).filter((t) => targetCandidates(t).length > 0)).size;
+  const seen = new Set<string>();
+  for (const t of linkTargets(body)) {
+    const c = targetCandidates(t);
+    if (c.length > 0) seen.add(c[c.length - 1]);
+  }
+  return seen.size;
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

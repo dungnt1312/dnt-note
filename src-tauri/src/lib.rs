@@ -169,12 +169,19 @@ pub fn run() {
             {
                 let refs = notes_store.attachment_refs();
                 let att_dir = app_data_dir(&handle).join("attachments");
-                if let Err(e) = notes_core::attachments::cleanup_orphans(
-                    &att_dir,
-                    &refs,
-                    notes_core::attachments::ORPHAN_GRACE,
-                ) {
-                    eprintln!("attachment cleanup: {e}");
+                let grace = notes_core::attachments::ORPHAN_GRACE;
+                match notes_core::attachments::cleanup_orphans_in(&att_dir, &refs, grace) {
+                    // Also prune the sync mirror so removed orphans are not copied back.
+                    Ok(removed) if removed > 0 => {
+                        if let Some(sync_dir) = get_sync_dir(&handle) {
+                            let remote = sync_dir.join("attachments");
+                            if let Err(e) = notes_core::attachments::cleanup_orphans_in(&remote, &refs, grace) {
+                                eprintln!("sync attachment cleanup: {e}");
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("attachment cleanup: {e}"),
                 }
             }
 

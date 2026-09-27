@@ -36,6 +36,7 @@
   note được gửi tới endpoint embeddings của provider — dùng Ollama nếu muốn giữ dữ liệu tại máy
 - **Gợi ý tiêu đề & thẻ** bằng AI (menu ⋯ của note): sửa tiêu đề, chọn thẻ rồi Áp dụng
 - API key lưu trong **Windows Credential Manager**, không còn nằm trong `providers.json`
+- Nếu Credential Manager không khả dụng, key được lưu dự phòng vào `providers.json` (kèm cảnh báo); bản Linux của keyring cần libdbus (chưa kiểm thử)
 
 ### 📎 Media + Export
 - **Thư viện Media** (Ctrl+3): lưới ảnh/tệp, lọc, đổi tên, xóa, xem note nào đang dùng

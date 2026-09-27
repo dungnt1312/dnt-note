@@ -102,15 +102,21 @@ pub fn refs_in_body(body: &str) -> Vec<String> {
     out
 }
 
-/// Number of distinct attachment link targets (by raw text) in a body.
+/// Number of distinct attachment files in a body, keyed by canonical
+/// (decoded when safe, else raw) name so `a b` and `a%20b` count once.
 pub fn unique_ref_count(body: &str) -> usize {
     let mut seen = std::collections::HashSet::new();
     for t in link_targets(body) {
-        if !target_candidates(&t.raw).is_empty() {
-            seen.insert(t.raw);
+        if let Some(c) = target_candidates(&t.raw).pop() {
+            seen.insert(c);
         }
     }
     seen.len()
+}
+
+/// In-flight copy temp file (`.<name>.part`); skipped by scans.
+pub fn is_temp_name(name: &str) -> bool {
+    name.starts_with('.') && name.ends_with(".part")
 }
 
 /// Canonical link encoding: `%` -> `%25`, space -> `%20`, nothing else.
@@ -142,6 +148,9 @@ pub fn percent_decode(s: &str) -> Option<String> {
 /// reserved device name (with or without extension).
 pub fn is_safe_name(name: &str) -> bool {
     if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
         return false;
     }
     if name.chars().any(|c| c == '/' || c == '\\' || c == ':' || (c as u32) < 0x20) {
@@ -298,21 +307,29 @@ pub fn cleanup_orphans(
     referenced: &std::collections::HashSet<String>,
     min_age: std::time::Duration,
 ) -> Result<usize> {
+    cleanup_orphans_in(attachments_dir, referenced, min_age)
+}
+
+/// Orphan cleanup for any attachments dir (local or sync mirror). Stale
+/// `.part` temp files older than `min_age` are removed as well.
+pub fn cleanup_orphans_in(
+    dir: &Path,
+    referenced: &std::collections::HashSet<String>,
+    min_age: std::time::Duration,
+) -> Result<usize> {
     let mut removed = 0;
-    if !attachments_dir.exists() {
+    if !dir.exists() {
         return Ok(0);
     }
-    for entry in fs::read_dir(attachments_dir)?.flatten() {
+    for entry in fs::read_dir(dir)?.flatten() {
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if referenced.contains(&name) {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
+            continue;
+        };
+        if !is_temp_name(&name) && referenced.contains(&name) {
             continue;
         }
         // Unknown mtime → treat as fresh (never delete on doubt).
@@ -430,6 +447,49 @@ mod tests {
         assert!(save_bytes(&dir, "a:b.png", b"a").is_err());
         assert!(save_bytes(&dir, "con.png", b"a").is_err());
         assert!(save_bytes(&dir, "big.png", &vec![0u8; (MAX_FILE_BYTES + 1) as usize]).is_err());
+    }
+
+    #[test]
+    fn is_safe_name_rejects_trailing_dot_or_space() {
+        for bad in ["a.png.", "a.png ", "x.", "y "] {
+            assert!(!is_safe_name(bad), "{bad:?}");
+        }
+        assert!(is_safe_name(".hidden.png"));
+    }
+
+    #[test]
+    fn unique_ref_count_by_canonical_name() {
+        // Shared vector with insertLink.test.ts.
+        let body = "![a](attachments/a%20b.png) ![b](attachments/a b.png) [c](attachments/c.pdf) [d](attachments/c.pdf)";
+        assert_eq!(unique_ref_count(body), 2);
+    }
+
+    #[test]
+    fn cleanup_orphans_in_handles_part_files_and_both_dirs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let local = tmp.path().join("local");
+        let remote = tmp.path().join("remote");
+        for d in [&local, &remote] {
+            fs::create_dir_all(d).unwrap();
+            fs::write(d.join("gone.png"), "g").unwrap();
+            fs::write(d.join("kept.png"), "k").unwrap();
+            fs::write(d.join(".x.png.part"), "p").unwrap();
+        }
+        let refs: HashSet<String> = ["kept.png".to_string()].into_iter().collect();
+        for d in [&local, &remote] {
+            assert_eq!(cleanup_orphans_in(d, &refs, std::time::Duration::ZERO).unwrap(), 2);
+            assert!(d.join("kept.png").exists());
+            assert!(!d.join("gone.png").exists());
+            assert!(!d.join(".x.png.part").exists());
+        }
+        // Nothing to resurrect after mirroring.
+        crate::sync::mirror_attachments(&local, &remote).unwrap();
+        assert!(!local.join("gone.png").exists());
+        // Fresh remote orphans survive the grace period.
+        fs::write(remote.join("new.png"), "n").unwrap();
+        assert_eq!(cleanup_orphans_in(&remote, &refs, std::time::Duration::from_secs(3600)).unwrap(), 0);
+        assert!(is_temp_name(".x.png.part"));
+        assert!(!is_temp_name("x.png"));
     }
 
     #[test]

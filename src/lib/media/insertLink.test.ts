@@ -3,6 +3,7 @@ import {
   bytesToBase64,
   countAttachmentRefs,
   encodeLinkName,
+  isSafeName,
   markdownLinkFor,
   percentDecode,
   targetCandidates,
@@ -42,8 +43,19 @@ describe("percentDecode / targetCandidates", () => {
   });
 });
 
+describe("isSafeName", () => {
+  it("rejects trailing dot or space (Windows strips them)", () => {
+    for (const bad of ["a.png.", "a.png ", "x.", "y "]) expect(isSafeName(bad)).toBe(false);
+    expect(isSafeName(".hidden.png")).toBe(true);
+  });
+});
+
 describe("countAttachmentRefs", () => {
-  it("counts unique raw targets with balanced parens", () => {
+  it("counts files by canonical decoded name (shared vector with Rust)", () => {
+    const body = "![a](attachments/a%20b.png) ![b](attachments/a b.png) [c](attachments/c.pdf) [d](attachments/c.pdf)";
+    expect(countAttachmentRefs(body)).toBe(2);
+  });
+  it("counts unique files with balanced parens", () => {
     const body = [
       "![a](attachments/x (1).png)",
       "[b](attachments/x%20(1).png)",
@@ -52,7 +64,7 @@ describe("countAttachmentRefs", () => {
       "(attachments/open",
       "next)",
     ].join("\n");
-    expect(countAttachmentRefs(body)).toBe(3);
+    expect(countAttachmentRefs(body)).toBe(2);
     expect(countAttachmentRefs("")).toBe(0);
   });
 });

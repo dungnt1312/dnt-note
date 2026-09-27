@@ -1,3 +1,4 @@
+use crate::attachments::{is_safe_name, is_temp_name};
 use crate::note_file;
 use crate::note::Note;
 use chrono::DateTime;
@@ -69,9 +70,9 @@ pub fn mirror(notes_dir: &Path, target_dir: &Path) -> std::io::Result<SyncReport
     Ok(report)
 }
 
-/// Copy attachment files missing on either side. Existing files are never
-/// overwritten (names are uuid-prefixed, so same name means same file).
-/// Returns number of files copied.
+/// Copy attachment files missing on either side. An existing file is only
+/// replaced when its size differs and it is older than the source (e.g. a
+/// truncated earlier copy). Returns number of files copied.
 pub fn mirror_attachments(local: &Path, remote: &Path) -> std::io::Result<usize> {
     fs::create_dir_all(local)?;
     fs::create_dir_all(remote)?;
@@ -82,17 +83,46 @@ fn copy_missing(from: &Path, to: &Path) -> std::io::Result<usize> {
     let mut n = 0;
     for entry in fs::read_dir(from)?.flatten() {
         let path = entry.path();
-        if !path.is_file() {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
+            continue;
+        };
+        if is_temp_name(&name) || !is_safe_name(&name) {
             continue;
         }
-        let Some(name) = path.file_name() else { continue };
-        let dest = to.join(name);
-        if !dest.exists() {
-            fs::copy(&path, &dest)?;
+        let Ok(src_meta) = fs::metadata(&path) else { continue };
+        if !src_meta.is_file() {
+            continue;
+        }
+        let dest = to.join(&name);
+        let needs_copy = match fs::metadata(&dest) {
+            Err(_) => true,
+            Ok(d) => {
+                d.is_file()
+                    && d.len() != src_meta.len()
+                    && matches!((d.modified(), src_meta.modified()), (Ok(dt), Ok(st)) if dt < st)
+            }
+        };
+        if needs_copy {
+            copy_atomic(&path, to, &name)?;
             n += 1;
         }
     }
     Ok(n)
+}
+
+/// Copy via `.<name>.part` + rename; stamps mtime = now so the orphan grace
+/// period starts on arrival.
+fn copy_atomic(src: &Path, to_dir: &Path, name: &str) -> std::io::Result<()> {
+    let tmp = to_dir.join(format!(".{name}.part"));
+    let result = (|| {
+        fs::copy(src, &tmp)?;
+        fs::File::options().write(true).open(&tmp)?.set_modified(std::time::SystemTime::now())?;
+        fs::rename(&tmp, to_dir.join(name))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
 }
 
 #[derive(PartialEq)]
@@ -241,13 +271,38 @@ mod tests {
         std::fs::create_dir_all(&remote).unwrap();
         std::fs::write(local.join("a.png"), "A").unwrap();
         std::fs::write(remote.join("b.pdf"), "B").unwrap();
-        std::fs::write(local.join("same.txt"), "local").unwrap();
-        std::fs::write(remote.join("same.txt"), "remote").unwrap();
+        std::fs::write(local.join("same.txt"), "loca1").unwrap();
+        std::fs::write(remote.join("same.txt"), "remot").unwrap();
         assert_eq!(mirror_attachments(&local, &remote).unwrap(), 2);
         assert_eq!(std::fs::read_to_string(remote.join("a.png")).unwrap(), "A");
         assert_eq!(std::fs::read_to_string(local.join("b.pdf")).unwrap(), "B");
-        assert_eq!(std::fs::read_to_string(local.join("same.txt")).unwrap(), "local");
-        assert_eq!(std::fs::read_to_string(remote.join("same.txt")).unwrap(), "remote");
+        assert_eq!(std::fs::read_to_string(local.join("same.txt")).unwrap(), "loca1");
+        assert_eq!(std::fs::read_to_string(remote.join("same.txt")).unwrap(), "remot");
+        assert_eq!(mirror_attachments(&local, &remote).unwrap(), 0);
+    }
+
+    #[test]
+    fn mirror_attachments_recopies_truncated_older_dest_atomically() {
+        let tmp = TempDir::new().unwrap();
+        let local = tmp.path().join("local");
+        let remote = tmp.path().join("remote");
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::create_dir_all(&remote).unwrap();
+        // Partial copy left on the remote, older than the full local file.
+        std::fs::write(remote.join("big.png"), "AB").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        std::fs::File::options().write(true).open(remote.join("big.png")).unwrap().set_modified(old).unwrap();
+        std::fs::write(local.join("big.png"), "ABCDEF").unwrap();
+        // Temp files are never mirrored.
+        std::fs::write(local.join(".t.png.part"), "x").unwrap();
+        assert_eq!(mirror_attachments(&local, &remote).unwrap(), 1);
+        assert_eq!(std::fs::read_to_string(remote.join("big.png")).unwrap(), "ABCDEF");
+        assert!(!remote.join(".t.png.part").exists());
+        let names: Vec<_> = std::fs::read_dir(&remote).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(names.len(), 1, "no leftover temp files: {names:?}");
+        // Arrival time is now, so the orphan grace period starts fresh.
+        let age = std::fs::metadata(remote.join("big.png")).unwrap().modified().unwrap().elapsed().unwrap_or_default();
+        assert!(age < std::time::Duration::from_secs(60));
         assert_eq!(mirror_attachments(&local, &remote).unwrap(), 0);
     }
 
