@@ -20,6 +20,7 @@ import { mediaApi } from "../../lib/api/media";
 import { countAttachmentRefs, fileToBase64, markdownLinkFor, MAX_FILES_PER_NOTE } from "../../lib/media/insertLink";
 import { isTauri } from "../../lib/env";
 import { editorSetup } from "../../lib/editor/editorSetup";
+import { getTracked, setTracked, untrack } from "../../lib/editor/trackedPos";
 import { fullDateTime, relativeTime } from "../../lib/dates";
 import { cn, errMsg } from "../../lib/utils";
 import { ContentHeader } from "../layout/ContentHeader";
@@ -99,7 +100,8 @@ export function NoteEditor() {
   const [view, setView] = useState<EditorView | null>(null);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
-  const onFilesRef = useRef<(files: File[], pos: number) => void>(() => {});
+  const onFilesRef = useRef<(files: File[], pos: number, text?: string) => void>(() => {});
+  const trackSeq = useRef(0);
 
   const note = notes.find((n) => n.id === selectedId) ?? null;
   const [titleDraft, setTitleDraft] = useState(note?.title ?? "");
@@ -114,7 +116,7 @@ export function NoteEditor() {
         extensions: editorSetup({
           onChange: (value) => onChangeRef.current(value),
           onModS: () => void flushSave().catch(() => {}),
-          onFiles: (files, pos) => onFilesRef.current(files, pos),
+          onFiles: (files, pos, text) => onFilesRef.current(files, pos, text),
         }),
       }),
       parent: editorHost.current,
@@ -160,20 +162,48 @@ export function NoteEditor() {
     return at + insert.length;
   };
 
-  onFilesRef.current = (files, pos) => {
+  onFilesRef.current = (files, pos, text) => {
     if (!isTauri || !view) return;
     const v = view;
+    const noteId = note.id;
+    const trackId = ++trackSeq.current;
+    // Pasted text goes in first so it is never lost.
+    let start = pos;
+    if (text) {
+      v.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: pos + text.length } });
+      start = pos + text.length;
+    }
+    v.dispatch({ effects: setTracked.of({ id: trackId, pos: start }) });
+    const alive = () => v.dom.isConnected && useNotesStore.getState().selectedId === noteId;
     void (async () => {
-      let at = pos;
-      for (const file of files) {
-        try {
-          const name = file.name || `pasted-${Date.now()}.png`;
-          const b64 = await fileToBase64(file);
-          const stored = await mediaApi.attachBytes(note.id, name, b64);
-          at = insertAt(v, at, markdownLinkFor(stored.name));
-        } catch (e) {
-          pushToast({ message: `Không đính kèm được ${file.name}: ${errMsg(e)}`, durationMs: 6000 });
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          // Links inserted earlier in this batch are already in the doc.
+          if (countAttachmentRefs(v.state.doc.toString()) >= MAX_FILES_PER_NOTE) {
+            pushToast({
+              message: `Tối đa ${MAX_FILES_PER_NOTE} file đính kèm mỗi ghi chú — bỏ qua ${files.length - i} tệp`,
+              durationMs: 6000,
+            });
+            return;
+          }
+          try {
+            const name = file.name || `pasted-${Date.now()}.png`;
+            const b64 = await fileToBase64(file);
+            const stored = await mediaApi.attachBytes(noteId, name, b64);
+            if (!alive()) {
+              pushToast({ message: "Ghi chú đã đổi — các liên kết còn lại chưa được chèn", durationMs: 6000 });
+              return;
+            }
+            const at = getTracked(v.state, trackId) ?? v.state.selection.main.head;
+            const end = insertAt(v, at, markdownLinkFor(stored.name));
+            v.dispatch({ effects: setTracked.of({ id: trackId, pos: end }) });
+          } catch (e) {
+            pushToast({ message: `Không đính kèm được ${file.name}: ${errMsg(e)}`, durationMs: 6000 });
+          }
         }
+      } finally {
+        if (v.dom.isConnected) v.dispatch({ effects: untrack.of(trackId) });
       }
     })();
   };

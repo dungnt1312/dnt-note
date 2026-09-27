@@ -4,13 +4,15 @@ import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/v
 import { EditorState, type Extension } from "@codemirror/state";
 import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { livePreview } from "./livePreview";
+import { trackedPositions } from "./trackedPos";
 import { toggleWrap, setHeading, toggleLinePrefix } from "./formatting";
 
 export interface EditorOptions {
   onChange: (body: string) => void;
   onModS?: () => void;
   placeholder?: string;
-  onFiles?: (files: File[], pos: number) => void;
+  /** `text` is plain text pasted alongside files; insert it before the links. */
+  onFiles?: (files: File[], pos: number, text?: string) => void;
 }
 
 const formatKeymap = keymap.of([
@@ -32,6 +34,7 @@ export function editorSetup(options: EditorOptions): Extension[] {
   return [
     markdown({ base: markdownLanguage, extensions: GFM }),
     livePreview(),
+    trackedPositions,
     history(),
     EditorView.lineWrapping,
     EditorView.contentAttributes.of({ "aria-label": "Nội dung ghi chú", spellcheck: "false" }),
@@ -63,7 +66,8 @@ export function editorSetup(options: EditorOptions): Extension[] {
         const files = Array.from(e.clipboardData?.files ?? []);
         if (!files.length || !options.onFiles) return false;
         e.preventDefault();
-        options.onFiles(files, view.state.selection.main.head);
+        const text = e.clipboardData?.getData("text/plain") || undefined;
+        options.onFiles(files, view.state.selection.main.head, text);
         return true;
       },
     }),

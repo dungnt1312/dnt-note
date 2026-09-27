@@ -25,24 +25,33 @@ pub fn is_allowed(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Names referenced as `(attachments/<name>)` in a note body.
-/// Parens inside the name must be balanced (e.g. `image (1).png`); a link
-/// that hits a newline before closing is ignored.
-pub fn refs_in_body(body: &str) -> Vec<String> {
+/// A `(attachments/<raw>)` occurrence: byte span of the whole parenthesised
+/// destination (including both parens) and the trimmed raw target.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkTarget {
+    pub start: usize,
+    pub end: usize,
+    pub raw: String,
+}
+
+/// Scan `(attachments/...)` destinations. Parens inside the name must be
+/// balanced (e.g. `image (1).png`); a link that hits a newline is ignored.
+pub fn link_targets(body: &str) -> Vec<LinkTarget> {
     const MARK: &str = "(attachments/";
     let mut out = Vec::new();
-    let mut rest = body;
-    while let Some(pos) = rest.find(MARK) {
-        rest = &rest[pos + MARK.len()..];
+    let mut offset = 0;
+    while let Some(pos) = body[offset..].find(MARK) {
+        let start = offset + pos;
+        let inner = start + MARK.len();
         let mut depth = 1usize;
         let mut end = None;
-        for (i, ch) in rest.char_indices() {
+        for (i, ch) in body[inner..].char_indices() {
             match ch {
                 '(' => depth += 1,
                 ')' => {
                     depth -= 1;
                     if depth == 0 {
-                        end = Some(i);
+                        end = Some(inner + i);
                         break;
                     }
                 }
@@ -50,23 +59,68 @@ pub fn refs_in_body(body: &str) -> Vec<String> {
                 _ => {}
             }
         }
-        let Some(end) = end else { continue };
-        let name = percent_decode(rest[..end].trim());
-        let name = name.as_str();
-        if !name.is_empty() && !name.contains('/') && !name.contains('\\') {
-            out.push(name.to_string());
-        }
-        rest = &rest[end + 1..];
+        let Some(end) = end else {
+            offset = inner;
+            continue;
+        };
+        out.push(LinkTarget { start, end: end + 1, raw: body[inner..end].trim().to_string() });
+        offset = end + 1;
     }
     out
 }
 
-/// Decode `%XX` escapes (e.g. `%20` for spaces written by the editor).
-/// Returns the input unchanged if the result is not valid UTF-8.
-pub fn percent_decode(s: &str) -> String {
-    if !s.contains('%') {
-        return s.to_string();
+/// Safe file names a raw link target may refer to: the raw text and its
+/// percent-decoded form (when different and valid UTF-8).
+pub fn target_candidates(raw: &str) -> Vec<String> {
+    let mut v = Vec::new();
+    if is_safe_name(raw) {
+        v.push(raw.to_string());
     }
+    if let Some(d) = percent_decode(raw) {
+        if d != raw && is_safe_name(&d) {
+            v.push(d);
+        }
+    }
+    v
+}
+
+/// True when a link target refers to `name` in raw or decoded form.
+pub fn target_matches(raw: &str, name: &str) -> bool {
+    target_candidates(raw).iter().any(|c| c == name)
+}
+
+/// Names referenced in a note body (raw and decoded candidates, deduped).
+pub fn refs_in_body(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in link_targets(body) {
+        for c in target_candidates(&t.raw) {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// Number of distinct attachment link targets (by raw text) in a body.
+pub fn unique_ref_count(body: &str) -> usize {
+    let mut seen = std::collections::HashSet::new();
+    for t in link_targets(body) {
+        if !target_candidates(&t.raw).is_empty() {
+            seen.insert(t.raw);
+        }
+    }
+    seen.len()
+}
+
+/// Canonical link encoding: `%` -> `%25`, space -> `%20`, nothing else.
+pub fn encode_link_name(name: &str) -> String {
+    name.replace('%', "%25").replace(' ', "%20")
+}
+
+/// Decode `%XX` escapes; `None` if the result is not valid UTF-8.
+/// Malformed escapes are kept literally.
+pub fn percent_decode(s: &str) -> Option<String> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -80,16 +134,7 @@ pub fn percent_decode(s: &str) -> String {
         out.push(b[i]);
         i += 1;
     }
-    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
-}
-
-/// Link destination forms a stored name may appear as: raw and space-encoded.
-pub fn link_forms(name: &str) -> Vec<String> {
-    let mut v = vec![format!("(attachments/{name})")];
-    if name.contains(' ') {
-        v.push(format!("(attachments/{})", name.replace(' ', "%20")));
-    }
-    v
+    String::from_utf8(out).ok()
 }
 
 /// A bare file name that is safe on every platform: no separators, no ':'
@@ -297,11 +342,41 @@ mod tests {
     }
 
     #[test]
-    fn refs_in_body_percent_decodes() {
+    fn refs_in_body_raw_and_decoded() {
         let body = "![a](attachments/u-my%20pic%20(1).png) [b](attachments/x%2Fy.pdf) [c](attachments/bad%zz.txt)";
-        assert_eq!(refs_in_body(body), vec!["u-my pic (1).png", "bad%zz.txt"]);
-        assert_eq!(percent_decode("a%C3%A1"), "aá");
-        assert_eq!(percent_decode("50%"), "50%");
+        assert_eq!(refs_in_body(body), vec!["u-my%20pic%20(1).png", "u-my pic (1).png", "x%2Fy.pdf", "bad%zz.txt"]);
+        // Unsafe decoded forms are dropped.
+        assert_eq!(refs_in_body("(attachments/%2E%2E) (attachments/a%00.png)"), vec!["%2E%2E", "a%00.png"]);
+        assert_eq!(percent_decode("a%C3%A1").as_deref(), Some("aá"));
+        assert_eq!(percent_decode("50%").as_deref(), Some("50%"));
+        assert_eq!(percent_decode("%FF"), None);
+        assert_eq!(unique_ref_count("(attachments/a%20b.png) (attachments/a%20b.png) (attachments/c.png)"), 2);
+    }
+
+    #[test]
+    fn encode_link_name_vectors() {
+        assert_eq!(encode_link_name("a b.png"), "a%20b.png");
+        assert_eq!(encode_link_name("report%20final.pdf"), "report%2520final.pdf");
+        assert_eq!(encode_link_name("x(1).png"), "x(1).png");
+        assert_eq!(encode_link_name("x (1).png"), "x%20(1).png");
+        let n = "report%20final.pdf";
+        assert!(target_matches(&encode_link_name(n), n));
+    }
+
+    #[test]
+    fn orphans_keep_raw_and_decoded_refs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("att");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("report%20final.pdf"), "r").unwrap();
+        fs::write(dir.join("a b.png"), "a").unwrap();
+        fs::write(dir.join("gone.png"), "g").unwrap();
+        let refs: HashSet<String> =
+            refs_in_body("[r](attachments/report%20final.pdf) ![a](attachments/a%20b.png)").into_iter().collect();
+        assert_eq!(cleanup_orphans(&dir, &refs, std::time::Duration::ZERO).unwrap(), 1);
+        assert!(dir.join("report%20final.pdf").exists());
+        assert!(dir.join("a b.png").exists());
+        assert!(!dir.join("gone.png").exists());
     }
 
     #[test]

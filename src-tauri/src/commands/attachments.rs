@@ -40,7 +40,7 @@ pub fn attach_file(
     {
         let store = state.store.lock().map_err(err_of)?;
         let note = store.read(&note_id).map_err(err_of)?;
-        if notes_core::attachments::refs_in_body(&note.body).len() >= attachments::MAX_FILES_PER_NOTE {
+        if notes_core::attachments::unique_ref_count(&note.body) >= attachments::MAX_FILES_PER_NOTE {
             return Err("attachment-error: Tối đa 10 file đính kèm mỗi ghi chú".into());
         }
     }

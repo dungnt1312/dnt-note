@@ -54,8 +54,7 @@ pub fn attach_bytes(
     {
         let store = state.store.lock().map_err(err_of)?;
         let note = store.read(&note_id).map_err(err_of)?;
-        let unique: std::collections::HashSet<String> = attachments::refs_in_body(&note.body).into_iter().collect();
-        if unique.len() >= attachments::MAX_FILES_PER_NOTE {
+        if attachments::unique_ref_count(&note.body) >= attachments::MAX_FILES_PER_NOTE {
             return Err("attachment-error: Tối đa 10 file đính kèm mỗi ghi chú".into());
         }
     }

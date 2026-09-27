@@ -1,4 +1,4 @@
-use crate::attachments::{is_allowed, is_safe_name, link_forms, refs_in_body};
+use crate::attachments::{encode_link_name, is_allowed, is_safe_name, link_targets, refs_in_body, target_matches};
 use crate::error::{NoteError, Result};
 use crate::note::NotePatch;
 use crate::store::{write_atomic, NotesStore};
@@ -191,13 +191,23 @@ pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display:
         return Err(NoteError::Unknown(format!("File đã tồn tại: {display}")));
     }
 
-    // Old links may be raw or %20-encoded; new links always encode spaces.
-    let olds = link_forms(name);
-    let new_link = format!("(attachments/{})", new_name.replace(' ', "%20"));
-    let rewrite = |text: &str| olds.iter().fold(text.to_string(), |t, o| t.replace(o, &new_link));
+    // Rewrite every destination whose raw or decoded form is `name`.
+    let new_link = format!("(attachments/{})", encode_link_name(&new_name));
+    let rewrite = |text: &str| -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut last = 0;
+        for t in link_targets(text).into_iter().filter(|t| target_matches(&t.raw, name)) {
+            out.push_str(&text[last..t.start]);
+            out.push_str(&new_link);
+            last = t.end;
+        }
+        out.push_str(&text[last..]);
+        out
+    };
+    let refers = |text: &str| link_targets(text).iter().any(|t| target_matches(&t.raw, name));
     // Compute every new body up front so nothing is written if one fails to read.
     let mut plan: Vec<(RawNote, String)> = Vec::new();
-    for n in raw_notes(store).into_iter().filter(|n| olds.iter().any(|o| n.raw.contains(o))) {
+    for n in raw_notes(store).into_iter().filter(|n| refers(&n.raw)) {
         let text = match &n.live {
             Some(id) => rewrite(&store.read(id)?.body),
             None => rewrite(&n.raw),
@@ -231,15 +241,14 @@ pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display:
 /// leaving surrounding text. A bare `(attachments/name)` without a label is
 /// removed too so the file is no longer referenced.
 fn strip_links(body: &str, name: &str) -> String {
-    link_forms(name).iter().fold(body.to_string(), |b, t| strip_target(&b, t))
-}
-
-fn strip_target(body: &str, target: &str) -> String {
     let mut out = String::with_capacity(body.len());
-    let mut rest = body;
-    while let Some(pos) = rest.find(target) {
-        let before = &rest[..pos];
-        let mut cut = pos;
+    let mut last = 0;
+    for t in link_targets(body).into_iter().filter(|t| target_matches(&t.raw, name)) {
+        if t.start < last {
+            continue;
+        }
+        let before = &body[last..t.start];
+        let mut cut = before.len();
         if before.ends_with(']') {
             // Find the matching '[' on the same line (labels may nest brackets).
             let mut depth = 0i32;
@@ -257,14 +266,14 @@ fn strip_target(body: &str, target: &str) -> String {
                     _ => {}
                 }
             }
-            if cut != pos && before[..cut].ends_with('!') {
+            if cut != before.len() && before[..cut].ends_with('!') {
                 cut -= 1;
             }
         }
-        out.push_str(&rest[..cut]);
-        rest = &rest[pos + target.len()..];
+        out.push_str(&before[..cut]);
+        last = t.end;
     }
-    out.push_str(rest);
+    out.push_str(&body[last..]);
     out
 }
 
@@ -382,6 +391,23 @@ mod tests {
         assert!(delete_media(&dir, &mut store, &new, false).is_err());
         delete_media(&dir, &mut store, &new, true).unwrap();
         assert_eq!(store.read(&n.id).unwrap().body, "a  b");
+    }
+
+    #[test]
+    fn rename_and_delete_match_paren_encoded_links() {
+        let (_t, dir, mut store) = setup();
+        let old = format!("{U}-img (1).png");
+        fs::write(dir.join(&old), "x").unwrap();
+        let n = store
+            .create("N", &format!("a ![p](attachments/{U}-img%20%281%29.png) b [q](attachments/{old}) c"), vec![])
+            .unwrap();
+        let new = rename_media(&dir, &mut store, &old, "x y%").unwrap();
+        let enc = format!("{U}-x%20y%25.png");
+        assert_eq!(store.read(&n.id).unwrap().body, format!("a ![p](attachments/{enc}) b [q](attachments/{enc}) c"));
+        let m = store.create("M", &format!("s ![p](attachments/{U}-x%20y%25%2Epng) t"), vec![]).unwrap();
+        delete_media(&dir, &mut store, &new, true).unwrap();
+        assert_eq!(store.read(&n.id).unwrap().body, "a  b  c");
+        assert_eq!(store.read(&m.id).unwrap().body, "s  t");
     }
 
     #[test]
