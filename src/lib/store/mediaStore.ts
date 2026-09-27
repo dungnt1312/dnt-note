@@ -102,7 +102,7 @@ export const useMediaStore = create<MediaState>()((set, get) => ({
     let last: string | null = null;
     for (const p of paths) {
       try {
-        last = await mediaApi.import(p);
+        last = (await mediaApi.import(p)).name;
         imported++;
       } catch (e) {
         firstError ??= errMsg(e);

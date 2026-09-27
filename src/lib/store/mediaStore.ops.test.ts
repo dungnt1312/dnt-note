@@ -8,7 +8,7 @@ vi.mock("../api/media", () => ({
     del: vi.fn(async () => {}),
     import: vi.fn(async (p: string) => {
       if (p.includes("bad")) throw "Định dạng không hỗ trợ";
-      return `id-${p}`;
+      return { name: `id-${p}`, size: 1 };
     }),
     dirPath: vi.fn(async () => "/att"),
   },

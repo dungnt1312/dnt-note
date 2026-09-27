@@ -10,6 +10,7 @@ export interface EditorOptions {
   onChange: (body: string) => void;
   onModS?: () => void;
   placeholder?: string;
+  onFiles?: (files: File[], pos: number) => void;
 }
 
 const formatKeymap = keymap.of([
@@ -49,6 +50,23 @@ export function editorSetup(options: EditorOptions): Extension[] {
       ...historyKeymap,
       indentWithTab,
     ]),
+    EditorView.domEventHandlers({
+      drop: (e, view) => {
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (!files.length || !options.onFiles) return false;
+        e.preventDefault();
+        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head;
+        options.onFiles(files, pos);
+        return true;
+      },
+      paste: (e, view) => {
+        const files = Array.from(e.clipboardData?.files ?? []);
+        if (!files.length || !options.onFiles) return false;
+        e.preventDefault();
+        options.onFiles(files, view.state.selection.main.head);
+        return true;
+      },
+    }),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) options.onChange(u.state.doc.toString());
     }),

@@ -51,13 +51,45 @@ pub fn refs_in_body(body: &str) -> Vec<String> {
             }
         }
         let Some(end) = end else { continue };
-        let name = rest[..end].trim();
+        let name = percent_decode(rest[..end].trim());
+        let name = name.as_str();
         if !name.is_empty() && !name.contains('/') && !name.contains('\\') {
             out.push(name.to_string());
         }
         rest = &rest[end + 1..];
     }
     out
+}
+
+/// Decode `%XX` escapes (e.g. `%20` for spaces written by the editor).
+/// Returns the input unchanged if the result is not valid UTF-8.
+pub fn percent_decode(s: &str) -> String {
+    if !s.contains('%') {
+        return s.to_string();
+    }
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+            let hex = |c: u8| (c as char).to_digit(16).unwrap_or(0) as u8;
+            out.push(hex(b[i + 1]) * 16 + hex(b[i + 2]));
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
+}
+
+/// Link destination forms a stored name may appear as: raw and space-encoded.
+pub fn link_forms(name: &str) -> Vec<String> {
+    let mut v = vec![format!("(attachments/{name})")];
+    if name.contains(' ') {
+        v.push(format!("(attachments/{})", name.replace(' ', "%20")));
+    }
+    v
 }
 
 /// A bare file name that is safe on every platform: no separators, no ':'
@@ -262,6 +294,14 @@ mod tests {
     fn refs_in_body_finds_markdown_links() {
         let body = "ảnh: ![a](attachments/x-1.png)\nfile: [b](attachments/y-2.pdf)\nköd: (attachments/../etc)\nempty: ()";
         assert_eq!(refs_in_body(body), vec!["x-1.png", "y-2.pdf"]);
+    }
+
+    #[test]
+    fn refs_in_body_percent_decodes() {
+        let body = "![a](attachments/u-my%20pic%20(1).png) [b](attachments/x%2Fy.pdf) [c](attachments/bad%zz.txt)";
+        assert_eq!(refs_in_body(body), vec!["u-my pic (1).png", "bad%zz.txt"]);
+        assert_eq!(percent_decode("a%C3%A1"), "aá");
+        assert_eq!(percent_decode("50%"), "50%");
     }
 
     #[test]

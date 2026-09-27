@@ -1,4 +1,4 @@
-use crate::attachments::{is_allowed, is_safe_name, refs_in_body};
+use crate::attachments::{is_allowed, is_safe_name, link_forms, refs_in_body};
 use crate::error::{NoteError, Result};
 use crate::note::NotePatch;
 use crate::store::{write_atomic, NotesStore};
@@ -191,14 +191,16 @@ pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display:
         return Err(NoteError::Unknown(format!("File đã tồn tại: {display}")));
     }
 
-    let old_link = format!("(attachments/{name})");
-    let new_link = format!("(attachments/{new_name})");
+    // Old links may be raw or %20-encoded; new links always encode spaces.
+    let olds = link_forms(name);
+    let new_link = format!("(attachments/{})", new_name.replace(' ', "%20"));
+    let rewrite = |text: &str| olds.iter().fold(text.to_string(), |t, o| t.replace(o, &new_link));
     // Compute every new body up front so nothing is written if one fails to read.
     let mut plan: Vec<(RawNote, String)> = Vec::new();
-    for n in raw_notes(store).into_iter().filter(|n| n.raw.contains(&old_link)) {
+    for n in raw_notes(store).into_iter().filter(|n| olds.iter().any(|o| n.raw.contains(o))) {
         let text = match &n.live {
-            Some(id) => store.read(id)?.body.replace(&old_link, &new_link),
-            None => n.raw.replace(&old_link, &new_link),
+            Some(id) => rewrite(&store.read(id)?.body),
+            None => rewrite(&n.raw),
         };
         plan.push((n, text));
     }
@@ -229,10 +231,13 @@ pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display:
 /// leaving surrounding text. A bare `(attachments/name)` without a label is
 /// removed too so the file is no longer referenced.
 fn strip_links(body: &str, name: &str) -> String {
-    let target = format!("(attachments/{name})");
+    link_forms(name).iter().fold(body.to_string(), |b, t| strip_target(&b, t))
+}
+
+fn strip_target(body: &str, target: &str) -> String {
     let mut out = String::with_capacity(body.len());
     let mut rest = body;
-    while let Some(pos) = rest.find(&target) {
+    while let Some(pos) = rest.find(target) {
         let before = &rest[..pos];
         let mut cut = pos;
         if before.ends_with(']') {
@@ -356,11 +361,27 @@ mod tests {
         assert_eq!(new, format!("{U}-new name.png"));
         assert!(dir.join(&new).exists() && !dir.join(&old).exists());
         let body = store.read(&n.id).unwrap().body;
-        assert_eq!(body, format!("a ![p](attachments/{new}) b [q](attachments/{new})"));
+        let enc = new.replace(' ', "%20");
+        assert_eq!(body, format!("a ![p](attachments/{enc}) b [q](attachments/{enc})"));
 
         assert_eq!(rename_media(&dir, &mut store, &new, "Z.PNG").unwrap(), format!("{U}-Z.PNG"));
         assert!(rename_media(&dir, &mut store, &format!("{U}-Z.PNG"), "a/b").is_err());
         assert!(rename_media(&dir, &mut store, "missing.png", "x").is_err());
+    }
+
+    #[test]
+    fn rename_and_delete_handle_percent_encoded_links() {
+        let (_t, dir, mut store) = setup();
+        let old = "11111111-1111-1111-1111-111111111111-my pic.png";
+        fs::write(dir.join(old), "x").unwrap();
+        let n = store.create("N", "a ![p](attachments/11111111-1111-1111-1111-111111111111-my%20pic.png) b", vec![]).unwrap();
+        let new = rename_media(&dir, &mut store, old, "new name").unwrap();
+        assert_eq!(new, "11111111-1111-1111-1111-111111111111-new name.png");
+        let body = store.read(&n.id).unwrap().body;
+        assert_eq!(body, "a ![p](attachments/11111111-1111-1111-1111-111111111111-new%20name.png) b");
+        assert!(delete_media(&dir, &mut store, &new, false).is_err());
+        delete_media(&dir, &mut store, &new, true).unwrap();
+        assert_eq!(store.read(&n.id).unwrap().body, "a  b");
     }
 
     #[test]

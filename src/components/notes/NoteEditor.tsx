@@ -16,12 +16,12 @@ import {
 } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
-import { api } from "../../lib/api/notes";
-import { attachmentsApi } from "../../lib/api/attachments";
+import { mediaApi } from "../../lib/api/media";
+import { countAttachmentRefs, fileToBase64, markdownLinkFor, MAX_FILES_PER_NOTE } from "../../lib/media/insertLink";
 import { isTauri } from "../../lib/env";
 import { editorSetup } from "../../lib/editor/editorSetup";
 import { fullDateTime, relativeTime } from "../../lib/dates";
-import { cn } from "../../lib/utils";
+import { cn, errMsg } from "../../lib/utils";
 import { ContentHeader } from "../layout/ContentHeader";
 import { IconButton, Keycap, PillButton } from "../ui/Button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../ui/Menu";
@@ -99,6 +99,7 @@ export function NoteEditor() {
   const [view, setView] = useState<EditorView | null>(null);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
+  const onFilesRef = useRef<(files: File[], pos: number) => void>(() => {});
 
   const note = notes.find((n) => n.id === selectedId) ?? null;
   const [titleDraft, setTitleDraft] = useState(note?.title ?? "");
@@ -113,6 +114,7 @@ export function NoteEditor() {
         extensions: editorSetup({
           onChange: (value) => onChangeRef.current(value),
           onModS: () => void flushSave().catch(() => {}),
+          onFiles: (files, pos) => onFilesRef.current(files, pos),
         }),
       }),
       parent: editorHost.current,
@@ -149,23 +151,51 @@ export function NoteEditor() {
     );
   }
 
+  // Insert `text` at `pos` (clamped), return the position after it.
+  const insertAt = (v: EditorView, pos: number, text: string): number => {
+    const at = Math.min(Math.max(0, pos), v.state.doc.length);
+    const before = at > 0 ? v.state.doc.sliceString(at - 1, at) : "\n";
+    const insert = (before === "\n" ? "" : "\n") + text;
+    v.dispatch({ changes: { from: at, insert }, selection: { anchor: at + insert.length } });
+    return at + insert.length;
+  };
+
+  onFilesRef.current = (files, pos) => {
+    if (!isTauri || !view) return;
+    const v = view;
+    void (async () => {
+      let at = pos;
+      for (const file of files) {
+        try {
+          const name = file.name || `pasted-${Date.now()}.png`;
+          const b64 = await fileToBase64(file);
+          const stored = await mediaApi.attachBytes(note.id, name, b64);
+          at = insertAt(v, at, markdownLinkFor(stored.name));
+        } catch (e) {
+          pushToast({ message: `Không đính kèm được ${file.name}: ${errMsg(e)}`, durationMs: 6000 });
+        }
+      }
+    })();
+  };
+
   const attach = async () => {
-    if (!isTauri) return;
+    if (!isTauri || !view) return;
     try {
+      if (countAttachmentRefs(view.state.doc.toString()) >= MAX_FILES_PER_NOTE) {
+        pushToast({ message: `Tối đa ${MAX_FILES_PER_NOTE} file đính kèm mỗi ghi chú`, durationMs: 5000 });
+        return;
+      }
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({
         multiple: false,
         filters: [{ name: "Tệp đính kèm", extensions: ATTACHABLE }],
       });
       if (typeof picked !== "string") return;
-      await flushSave();
-      const stored = await attachmentsApi.attach(note.id, picked);
-      pushToast({ message: `Đã đính kèm ${stored.name.split("-").slice(1).join("-")}`, durationMs: 4000 });
-      // Rust already appended the reference link to the body — load it back.
-      const updated = await api.notes.read(note.id);
-      useNotesStore.setState({ body: updated.body, saveState: "saved" });
+      const stored = await mediaApi.import(picked);
+      insertAt(view, view.state.selection.main.head, markdownLinkFor(stored.name));
+      view.focus();
     } catch (e) {
-      pushToast({ message: `Không đính kèm được: ${e}`, durationMs: 6000 });
+      pushToast({ message: `Không đính kèm được: ${errMsg(e)}`, durationMs: 6000 });
     }
   };
 
