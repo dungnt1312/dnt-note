@@ -28,6 +28,19 @@ describe("NoteList", () => {
     render(<NoteList notes={notes} selectedId={null} onSelect={vi.fn()} />);
     const items = screen.getAllByRole("button", { name: /snippet/i });
     expect(items[0]).toHaveTextContent("Ghim trước");
+    const sections = screen.getAllByRole("region");
+    expect(sections[0]).toHaveAccessibleName("Đã ghim");
+    expect(sections[1]).toHaveAccessibleName("Cũ hơn");
+  });
+
+  it("marks the selected note as current", () => {
+    render(<NoteList notes={notes} selectedId="2" onSelect={vi.fn()} />);
+    expect(screen.getByRole("button", { current: true })).toHaveTextContent("Markdown guide");
+  });
+
+  it("shows an empty message when nothing matches", () => {
+    render(<NoteList notes={notes} selectedId={null} onSelect={vi.fn()} query="zzz" />);
+    expect(screen.getByText("Không tìm thấy ghi chú phù hợp")).toBeInTheDocument();
   });
 
   it("calls onSelect when an item is clicked", () => {

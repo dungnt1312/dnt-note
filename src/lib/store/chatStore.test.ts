@@ -115,7 +115,40 @@ describe("chatStore", () => {
     await useChatStore.getState().send("tóm tắt", [
       { id: "n1", title: "Tài liệu", body: "nội dung tài liệu" },
     ]);
-    expect(useChatStore.getState().messages[0].content).toContain("tóm tắt");
+    const user = useChatStore.getState().messages[0];
+    expect(user.content).toBe("tóm tắt");
+    expect(user.mentions).toEqual([{ id: "n1", title: "Tài liệu" }]);
+  });
+
+  it("first exchange names the session and adds it to the session list", async () => {
+    useChatStore.setState({ sessions: [] });
+    runAgentMock.mockImplementation(async () => ({ content: "ok", messages: [], pendingDeletes: [] }));
+    await useChatStore.getState().send("Lên kế hoạch   tuần này", []);
+    const s = useChatStore.getState();
+    expect(s.chatTitle).toBe("Lên kế hoạch tuần này");
+    expect(s.sessions[0]).toMatchObject({ id: s.chatId, title: "Lên kế hoạch tuần này" });
+  });
+
+  it("retryLast resends the last user message without duplicating it", async () => {
+    runAgentMock.mockImplementation(async ({ onEvent }) => {
+      onEvent?.({ type: "done", content: "trả lời" });
+      return { content: "trả lời", messages: [], pendingDeletes: [] };
+    });
+    await useChatStore.getState().send("câu hỏi", []);
+    await useChatStore.getState().retryLast();
+    const msgs = useChatStore.getState().messages;
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].content).toBe("câu hỏi");
+    expect(runAgentMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("deleteChat removes the session and resets when it was open", async () => {
+    const id = useChatStore.getState().chatId;
+    useChatStore.setState({ sessions: [{ id, title: "x", updated: "" }] });
+    await useChatStore.getState().deleteChat(id);
+    expect(api.chats.del).toHaveBeenCalledWith(id);
+    expect(useChatStore.getState().sessions).toHaveLength(0);
+    expect(useChatStore.getState().chatId).not.toBe(id);
   });
 
   it("newChat resets messages; stop aborts", async () => {

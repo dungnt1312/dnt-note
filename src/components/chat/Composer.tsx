@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { ArrowUp, Square, AtSign } from "lucide-react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { ArrowUp, AtSign, FileText, Plus, X } from "lucide-react";
 import { useChatStore } from "../../lib/store/chatStore";
 import { useNotesStore } from "../../lib/store/notesStore";
 import type { NoteMeta } from "../../lib/api/notes";
@@ -13,74 +13,157 @@ export function mentionQuery(text: string, caret: number): string | null {
   return m ? m[1] : null;
 }
 
-export function Composer({ disabled }: { disabled: boolean }) {
+export interface ComposerHandle {
+  focus: () => void;
+  setText: (text: string) => void;
+}
+
+interface ComposerProps {
+  placeholder: string;
+  compact?: boolean;
+}
+
+type Mention = { id: string; title: string };
+
+/** ChatGPT-style composer card: auto-growing textarea, @mention chips, round send button. */
+export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ placeholder, compact }, ref) {
   const send = useChatStore((s) => s.send);
   const stop = useChatStore((s) => s.stop);
   const status = useChatStore((s) => s.status);
   const notes = useNotesStore((s) => s.notes);
+  const selectedId = useNotesStore((s) => s.selectedId);
 
   const [draft, setDraft] = useState("");
-  const [mentions, setMentions] = useState<{ id: string; title: string; body: string }[]>([]);
-  const [mentionCursor, setMentionCursor] = useState(0);
+  const [mentions, setMentions] = useState<Mention[]>([]);
+  const [cursor, setCursor] = useState(0);
   const [caret, setCaret] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const query = mentionQuery(draft, caret);
+  const resize = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  };
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+    setText: (text) => {
+      setDraft(text);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(text.length, text.length);
+        setCaret(text.length);
+        resize(el);
+      });
+    },
+  }));
+
+  const query = dismissed ? null : mentionQuery(draft, caret);
   const candidates: NoteMeta[] = useMemo(() => {
     if (query === null) return [];
-    return fuzzyRank(notes, query ?? "", (n) => `${n.title} ${n.snippet}`)
+    return fuzzyRank(notes, query, (n) => `${n.title} ${n.snippet}`)
       .slice(0, 8)
       .map((r) => r.item);
   }, [query, notes]);
+  const menuOpen = candidates.length > 0;
+
+  const addMention = (note: Pick<NoteMeta, "id" | "title">) =>
+    setMentions((m) => (m.some((x) => x.id === note.id) ? m : [...m, { id: note.id, title: note.title }]));
 
   const insertMention = (note: NoteMeta) => {
-    const before = draft.slice(0, caret);
+    const before = draft.slice(0, caret).replace(/@([^\s@]*)$/, "");
     const after = draft.slice(caret);
-    const cleaned = before.replace(/@([^\s@]*)$/, `@${note.title} `);
-    setDraft(cleaned + after);
-    setMentions((m) => (m.some((x) => x.id === note.id) ? m : [...m, { id: note.id, title: note.title, body: "" }]));
-    // body fetched on send (notes store has no body) — pull from read on send time
-    textareaRef.current?.focus();
+    const next = before + after;
+    setDraft(next);
+    addMention(note);
+    setCursor(0);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      el?.focus();
+      el?.setSelectionRange(before.length, before.length);
+      setCaret(before.length);
+    });
   };
+
+  const insertAt = () => {
+    const el = textareaRef.current;
+    const pos = el?.selectionStart ?? draft.length;
+    const needsSpace = pos > 0 && !/\s$/.test(draft.slice(0, pos));
+    const next = `${draft.slice(0, pos)}${needsSpace ? " " : ""}@${draft.slice(pos)}`;
+    const newCaret = pos + (needsSpace ? 2 : 1);
+    setDraft(next);
+    setDismissed(false);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(newCaret, newCaret);
+      setCaret(newCaret);
+    });
+  };
+
+  const canSend = draft.trim().length > 0 && status !== "streaming";
 
   const doSend = async () => {
     const text = draft.trim();
     if (!text || status === "streaming") return;
+    const pending = mentions;
     setDraft("");
     setMentions([]);
-    // Resolve mention bodies at send time.
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    const { api } = await import("../../lib/api/notes");
     const resolved = await Promise.all(
-      mentions.map(async (m) => {
-        if (m.body) return m;
+      pending.map(async (m) => {
         try {
-          const { api } = await import("../../lib/api/notes");
           const note = await api.notes.read(m.id);
           return { ...m, body: note.body };
         } catch {
-          return m;
+          return { ...m, body: "" };
         }
       }),
     );
     await send(text, resolved);
   };
 
+  const current = notes.find((n) => n.id === selectedId);
+  const suggestCurrent = compact && current && !mentions.some((m) => m.id === current.id);
+
   return (
-    <div className="relative border-t border-[var(--border)] p-2.5">
-      {candidates.length > 0 && (
-        <div className="absolute bottom-full left-2.5 right-2.5 mb-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-elevated)] shadow-lg overflow-hidden">
+    <div
+      className="relative rounded-xl border border-composer-border bg-composer p-2.5 shadow-[0_3px_10px_rgba(0,0,0,0.06)]"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+          textareaRef.current?.focus();
+        }
+      }}
+    >
+      {menuOpen && (
+        <div
+          role="listbox"
+          id="mention-list"
+          aria-label="Chọn ghi chú"
+          className="absolute bottom-full left-0 right-0 mb-2 max-h-[300px] overflow-y-auto rounded-[16px] border border-composer-border bg-popover p-1.5 shadow-popover"
+        >
+          <div className="px-2.5 pb-1 pt-1 text-caption font-medium text-fg-secondary">Nhắc tới ghi chú</div>
           {candidates.map((n, i) => (
             <button
               key={n.id}
+              type="button"
+              role="option"
+              aria-selected={i === cursor}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setCursor(i)}
               onClick={() => insertMention(n)}
               className={cn(
-                "w-full text-left px-3 py-1.5 text-[12.5px] flex items-center gap-2",
-                i === mentionCursor ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--bg-hover)]",
+                "flex h-11 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-left",
+                i === cursor && "bg-hover",
               )}
             >
-              <AtSign size={11} className="text-[var(--text-faint)]" />
-              <span className="truncate text-[var(--text)]">{n.title}</span>
-              <span className="ml-auto truncate text-[11px] text-[var(--text-faint)] max-w-[140px]">
-                {n.snippet}
+              <FileText size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-callout font-medium text-fg">{n.title}</span>
+                <span className="block truncate text-caption text-fg-secondary">{n.snippet || "Chưa có nội dung"}</span>
               </span>
             </button>
           ))}
@@ -88,76 +171,120 @@ export function Composer({ disabled }: { disabled: boolean }) {
       )}
 
       {mentions.length > 0 && (
-        <div className="flex gap-1 flex-wrap mb-1.5">
+        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
           {mentions.map((m) => (
-            <span key={m.id} className="text-[11px] px-1.5 py-0.5 rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
-              @{m.title}
+            <span
+              key={m.id}
+              className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[10px] border border-composer-border bg-control pl-2 pr-1 text-footnote text-fg"
+            >
+              <FileText size={12} aria-hidden="true" className="shrink-0 text-fg-secondary" />
+              <span className="truncate">{m.title}</span>
+              <button
+                type="button"
+                aria-label={`Bỏ đính kèm ${m.title}`}
+                onClick={() => setMentions((all) => all.filter((x) => x.id !== m.id))}
+                className="flex size-5 shrink-0 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
+              >
+                <X size={11} aria-hidden="true" />
+              </button>
             </span>
           ))}
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          rows={1}
-          disabled={disabled}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setCaret(e.target.selectionStart ?? e.target.value.length);
-            e.target.style.height = "auto";
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-          }}
-          onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-          onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-          onKeyDown={(e) => {
-            if (candidates.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-              e.preventDefault();
-              setMentionCursor((c) =>
-                e.key === "ArrowDown"
-                  ? Math.min(c + 1, candidates.length - 1)
-                  : Math.max(c - 1, 0),
-              );
-              return;
-            }
-            if (candidates.length > 0 && e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              insertMention(candidates[mentionCursor]);
-              return;
-            }
-            if (e.key === "Escape" && candidates.length > 0) {
-              setMentionCursor(0);
-              setDraft(draft.replace(/@([^\s@]*)$/, ""));
-              return;
-            }
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void doSend();
-            }
-          }}
-          placeholder="Hỏi trợ lý AI… (@ để đính kèm note, Enter để gửi)"
-          className="flex-1 resize-none max-h-[140px] px-3 py-2 text-[13px] rounded-[var(--radius-md)] bg-[var(--bg-elevated)] border border-[var(--border)] outline-none focus:border-[var(--accent)] text-[var(--text)] placeholder:text-[var(--text-faint)]"
-        />
+      <textarea
+        ref={textareaRef}
+        value={draft}
+        rows={1}
+        aria-label="Tin nhắn cho trợ lý"
+        aria-autocomplete="list"
+        aria-controls={menuOpen ? "mention-list" : undefined}
+        aria-expanded={menuOpen}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setCaret(e.target.selectionStart ?? e.target.value.length);
+          setDismissed(false);
+          setCursor(0);
+          resize(e.target);
+        }}
+        onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+        onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+        onKeyDown={(e) => {
+          if (menuOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            e.preventDefault();
+            setCursor((c) =>
+              e.key === "ArrowDown" ? (c + 1) % candidates.length : (c - 1 + candidates.length) % candidates.length,
+            );
+            return;
+          }
+          if (menuOpen && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+            e.preventDefault();
+            insertMention(candidates[cursor]);
+            return;
+          }
+          if (menuOpen && e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setDismissed(true);
+            return;
+          }
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            void doSend();
+          }
+        }}
+        className="block max-h-[200px] w-full resize-none bg-transparent px-2 py-1.5 text-body text-fg outline-none"
+      />
+
+      <div className="mt-1 flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="Nhắc tới ghi chú (@)"
+          title="Nhắc tới ghi chú (@)"
+          onClick={insertAt}
+          className="flex size-[34px] items-center justify-center rounded-full text-fg transition-colors hover:bg-composer-hover"
+        >
+          <AtSign size={17} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+        {suggestCurrent && current && (
+          <button
+            type="button"
+            onClick={() => addMention(current)}
+            title="Đính kèm ghi chú đang mở"
+            className="inline-flex h-7 max-w-[170px] items-center gap-1 rounded-full border border-dashed border-composer-border px-2.5 text-footnote font-medium text-fg-secondary transition-colors hover:bg-composer-hover"
+          >
+            <Plus size={11} strokeWidth={2.5} aria-hidden="true" className="shrink-0" />
+            <span className="truncate">{current.title}</span>
+          </button>
+        )}
+        <div className="flex-1" />
         {status === "streaming" ? (
           <button
+            type="button"
             onClick={stop}
+            aria-label="Dừng tạo câu trả lời"
             title="Dừng"
-            className="p-2.5 rounded-[var(--radius-md)] bg-[var(--bg-hover)] text-[var(--text)] hover:opacity-80"
+            className="flex size-[34px] items-center justify-center rounded-full bg-accent transition-colors hover:bg-accent-hover"
           >
-            <Square size={14} />
+            <span aria-hidden="true" className="size-[11px] rounded-[2.5px] bg-accent-fg" />
           </button>
         ) : (
           <button
+            type="button"
             onClick={() => void doSend()}
-            disabled={!draft.trim() || disabled}
-            title="Gửi (Enter)"
-            className="p-2.5 rounded-[var(--radius-md)] bg-[var(--accent)] text-white disabled:opacity-40 hover:opacity-90"
+            disabled={!canSend}
+            aria-label="Gửi (Enter)"
+            title="Gửi (Enter) · Shift+Enter để xuống dòng"
+            className={cn(
+              "flex size-[34px] items-center justify-center rounded-full transition-colors",
+              canSend ? "bg-accent text-accent-fg hover:bg-accent-hover" : "bg-send-disabled text-send-disabled-fg",
+            )}
           >
-            <ArrowUp size={14} />
+            <ArrowUp size={17} strokeWidth={2.5} aria-hidden="true" />
           </button>
         )}
       </div>
     </div>
   );
-}
+});

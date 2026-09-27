@@ -1,40 +1,57 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Moon, Plus, Settings, Sun, Monitor, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  FileText,
+  MessageSquare,
+  Monitor,
+  Moon,
+  PanelLeft,
+  Search,
+  Settings,
+  Sparkles,
+  SquarePen,
+  Sun,
+  Trash2,
+} from "lucide-react";
 import { api } from "../../lib/api/notes";
 import { useNotesStore } from "../../lib/store/notesStore";
+import { useChatStore } from "../../lib/store/chatStore";
 import { useUi } from "../../lib/store/uiStore";
-import { useTheme, type Theme } from "../theme/ThemeProvider";
+import { useTheme } from "../theme/ThemeProvider";
 import { fuzzyRank } from "../../lib/fuzzy";
+import { shortDate } from "../../lib/dates";
+import { cn } from "../../lib/utils";
+import { Keycap } from "../ui/Button";
+import { ConfirmDialog, Overlay } from "../ui/Dialog";
 
 interface PaletteItem {
   id: string;
+  group: "Lệnh" | "Ghi chú gần đây" | "Ghi chú" | "Hội thoại";
   label: string;
-  hint?: string;
-  icon: React.ReactNode;
+  detail?: string;
+  shortcut?: string;
+  icon: ReactNode;
   run: () => void;
-}
-
-function ThemeActions(runTheme: (t: Theme) => void): PaletteItem[] {
-  return [
-    { id: "theme-light", label: "Theme: Sáng", icon: <Sun size={15} />, run: () => runTheme("light") },
-    { id: "theme-dark", label: "Theme: Tối", icon: <Moon size={15} />, run: () => runTheme("dark") },
-    { id: "theme-system", label: "Theme: Theo hệ thống", icon: <Monitor size={15} />, run: () => runTheme("system") },
-  ];
 }
 
 export function CommandPalette() {
   const open = useUi((s) => s.paletteOpen);
   const setOpen = useUi((s) => s.setPaletteOpen);
-  const setSettingsOpen = useUi((s) => s.setSettingsOpen);
+  const setSection = useUi((s) => s.setSection);
+  const toggleSidebar = useUi((s) => s.toggleSidebar);
+  const setChatOpen = useUi((s) => s.setChatOpen);
+  const pushToast = useUi((s) => s.pushToast);
   const { setTheme } = useTheme();
 
   const notes = useNotesStore((s) => s.notes);
   const select = useNotesStore((s) => s.select);
   const create = useNotesStore((s) => s.create);
+  const sessions = useChatStore((s) => s.sessions);
+  const loadChat = useChatStore((s) => s.loadChat);
+  const newChat = useChatStore((s) => s.newChat);
 
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [confirmTrash, setConfirmTrash] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const close = () => {
@@ -43,130 +60,174 @@ export function CommandPalette() {
     setCursor(0);
   };
 
-  const items: PaletteItem[] = useMemo(() => {
-    const actions: PaletteItem[] = [
-      {
-        id: "act-new",
-        label: "Ghi chú mới",
-        hint: "Ctrl+N",
-        icon: <Plus size={15} />,
-        run: () => void create(),
-      },
-      ...ThemeActions(setTheme),
-      {
-        id: "act-settings",
-        label: "Cài đặt",
-        icon: <Settings size={15} />,
-        run: () => setSettingsOpen(true),
-      },
-      {
-        id: "act-empty-trash",
-        label: "Xóa sạch thùng rác",
-        icon: <Trash2 size={15} />,
-        run: () => {
-          void api.notes.emptyTrash().then((n) => {
-            useUi.getState().pushToast({ message: `Đã xóa ${n} ghi chú trong thùng rác`, durationMs: 4000 });
-          });
-        },
-      },
+  const items = useMemo(() => {
+    const commands: PaletteItem[] = [
+      { id: "new-note", group: "Lệnh", label: "Ghi chú mới", shortcut: "Ctrl N", icon: <SquarePen size={15} />, run: () => {
+        setSection("notes");
+        void create();
+      } },
+      { id: "new-chat", group: "Lệnh", label: "Hội thoại mới", shortcut: "Ctrl ⇧ O", icon: <MessageSquare size={15} />, run: () => {
+        void newChat();
+        setSection("chat");
+      } },
+      { id: "go-notes", group: "Lệnh", label: "Đi tới Ghi chú", shortcut: "Ctrl 1", icon: <FileText size={15} />, run: () => setSection("notes") },
+      { id: "go-chat", group: "Lệnh", label: "Đi tới Trợ lý AI", shortcut: "Ctrl 2", icon: <Sparkles size={15} />, run: () => setSection("chat") },
+      { id: "side-chat", group: "Lệnh", label: "Mở trợ lý cạnh ghi chú", shortcut: "Ctrl ⇧ J", icon: <Sparkles size={15} />, run: () => {
+        setSection("notes");
+        setChatOpen(true);
+      } },
+      { id: "sidebar", group: "Lệnh", label: "Ẩn/hiện thanh bên", shortcut: "Ctrl \\", icon: <PanelLeft size={15} />, run: toggleSidebar },
+      { id: "theme-light", group: "Lệnh", label: "Giao diện: Sáng", icon: <Sun size={15} />, run: () => setTheme("light") },
+      { id: "theme-dark", group: "Lệnh", label: "Giao diện: Tối", icon: <Moon size={15} />, run: () => setTheme("dark") },
+      { id: "theme-system", group: "Lệnh", label: "Giao diện: Theo hệ thống", icon: <Monitor size={15} />, run: () => setTheme("system") },
+      { id: "settings", group: "Lệnh", label: "Cài đặt", shortcut: "Ctrl ,", icon: <Settings size={15} />, run: () => setSection("settings") },
+      { id: "empty-trash", group: "Lệnh", label: "Dọn sạch thùng rác…", icon: <Trash2 size={15} />, run: () => setConfirmTrash(true) },
     ];
     const q = query.trim().toLowerCase();
-    const matchedActions = fuzzyRank(actions, q, (a) => a.label.toLowerCase()).map((r) => r.item);
-    const matchedNotes = fuzzyRank(notes, q, (n) => `${n.title} ${n.snippet}`)
-      .slice(0, 8)
+    const cmd = fuzzyRank(commands, q, (c) => c.label.toLowerCase()).map((r) => r.item);
+    const noteItems = fuzzyRank(notes, q, (n) => `${n.title} ${n.snippet}`)
+      .slice(0, q ? 8 : 5)
       .map<PaletteItem>(({ item: n }) => ({
         id: `note-${n.id}`,
-        label: n.title,
-        hint: n.snippet.slice(0, 40),
+        group: q ? "Ghi chú" : "Ghi chú gần đây",
+        label: n.title || "Chưa đặt tên",
+        detail: shortDate(n.updated),
         icon: <FileText size={15} />,
-        run: () => void select(n.id),
+        run: () => {
+          setSection("notes");
+          void select(n.id);
+        },
       }));
-    return [...matchedActions, ...matchedNotes];
-  }, [query, notes, create, select, setSettingsOpen, setTheme]);
+    const chatItems = (q ? fuzzyRank(sessions, q, (s) => s.title).map((r) => r.item) : sessions.slice(0, 3))
+      .slice(0, 5)
+      .map<PaletteItem>((s) => ({
+        id: `chat-${s.id}`,
+        group: "Hội thoại",
+        label: s.title,
+        detail: shortDate(s.updated),
+        icon: <MessageSquare size={15} />,
+        run: () => {
+          void loadChat(s.id);
+          setSection("chat");
+        },
+      }));
+    return [...cmd, ...noteItems, ...chatItems];
+  }, [query, notes, sessions, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme]);
+
+  useEffect(() => setCursor(0), [query]);
 
   useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [open]);
-
-  useEffect(() => {
-    setCursor(0);
-  }, [query]);
-
-  useEffect(() => {
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${cursor}"]`);
-    el?.scrollIntoView({ block: "nearest" });
+    listRef.current?.querySelector<HTMLElement>(`[data-idx="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
-
-  if (!open) return null;
 
   const runItem = (item: PaletteItem) => {
     close();
     item.run();
   };
 
+  let lastGroup = "";
+
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center pt-[12vh]"
-      onMouseDown={close}
-    >
-      <div
-        className="w-[560px] max-w-[90vw] rounded-[var(--radius-lg)] bg-[var(--bg-elevated)] border border-[var(--border)] shadow-2xl overflow-hidden"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              close();
-            } else if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setCursor((c) => Math.min(c + 1, items.length - 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setCursor((c) => Math.max(c - 1, 0));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              const item = items[cursor];
-              if (item) runItem(item);
-            }
-          }}
-          placeholder="Tìm ghi chú hoặc lệnh…"
-          className="w-full px-4 py-3 text-[14px] bg-transparent outline-none border-b border-[var(--border)] text-[var(--text)] placeholder:text-[var(--text-faint)]"
-        />
-        <div ref={listRef} className="max-h-[320px] overflow-y-auto py-1.5">
-          {items.length === 0 && (
-            <div className="px-4 py-6 text-center text-[13px] text-[var(--text-faint)]">
-              Không có kết quả
-            </div>
-          )}
-          {items.map((item, i) => (
-            <button
-              key={item.id}
-              data-idx={i}
-              onClick={() => runItem(item)}
-              onMouseEnter={() => setCursor(i)}
-              className={`w-full flex items-center gap-2.5 px-4 py-2 text-left text-[13px] ${
-                i === cursor
-                  ? "bg-[var(--accent-soft)] text-[var(--text)]"
-                  : "text-[var(--text)]"
-              }`}
-            >
-              <span className="text-[var(--text-secondary)]">{item.icon}</span>
-              <span className="truncate">{item.label}</span>
-              {item.hint && (
-                <span className="ml-auto text-[11px] text-[var(--text-faint)] truncate max-w-[200px]">
-                  {item.hint}
-                </span>
-              )}
-            </button>
-          ))}
+    <>
+      <Overlay open={open} onClose={close} label="Bảng lệnh" placement="top" className="w-[600px]">
+        <div className="flex h-[52px] items-center gap-2.5 px-4">
+          <Search size={16} aria-hidden="true" className="shrink-0 text-fg-tertiary" />
+          <input
+            data-autofocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setCursor((c) => Math.min(c + 1, items.length - 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setCursor((c) => Math.max(c - 1, 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                const item = items[cursor];
+                if (item) runItem(item);
+              }
+            }}
+            placeholder="Tìm ghi chú, hội thoại hoặc lệnh…"
+            aria-label="Tìm ghi chú, hội thoại hoặc lệnh"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="palette-list"
+            aria-activedescendant={items[cursor] ? `pal-${items[cursor].id}` : undefined}
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent text-body text-fg outline-none"
+          />
+          <Keycap>Esc</Keycap>
         </div>
-      </div>
-    </div>
+        <div className="h-px bg-hairline" />
+        <div ref={listRef} id="palette-list" role="listbox" className="max-h-[380px] overflow-y-auto p-1.5">
+          {items.length === 0 && (
+            <p className="py-7 text-center text-callout text-fg-secondary">Không có kết quả cho “{query}”</p>
+          )}
+          {items.map((item, i) => {
+            const header = item.group !== lastGroup;
+            lastGroup = item.group;
+            return (
+              <div key={item.id}>
+                {header && (
+                  <div role="presentation" className="px-2.5 pb-1 pt-2.5 text-footnote font-semibold text-fg-secondary">
+                    {item.group}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  id={`pal-${item.id}`}
+                  role="option"
+                  aria-selected={i === cursor}
+                  data-idx={i}
+                  tabIndex={-1}
+                  onClick={() => runItem(item)}
+                  onMouseMove={() => setCursor(i)}
+                  className={cn(
+                    "flex h-9 w-full items-center gap-2.5 rounded-sm px-2.5 text-left",
+                    i === cursor && "bg-hover",
+                  )}
+                >
+                  <span aria-hidden="true" className={cn("flex w-[18px] justify-center", i === cursor ? "text-fg" : "text-fg-secondary")}>
+                    {item.icon}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-callout font-medium text-fg">{item.label}</span>
+                  {item.detail && <span className="shrink-0 text-footnote text-fg-tertiary">{item.detail}</span>}
+                  {item.shortcut && <Keycap>{item.shortcut}</Keycap>}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="h-px bg-hairline" />
+        <div className="flex h-[34px] items-center gap-4 px-3.5 text-caption text-fg-tertiary">
+          <span className="flex items-center gap-1.5">
+            <Keycap>↑↓</Keycap> di chuyển
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Keycap>↵</Keycap> mở
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Keycap>Esc</Keycap> đóng
+          </span>
+        </div>
+      </Overlay>
+      <ConfirmDialog
+        open={confirmTrash}
+        title="Dọn sạch thùng rác?"
+        description="Mọi ghi chú trong thùng rác sẽ bị xóa vĩnh viễn và không thể khôi phục."
+        confirmLabel="Xóa vĩnh viễn"
+        onCancel={() => setConfirmTrash(false)}
+        onConfirm={() => {
+          setConfirmTrash(false);
+          void api.notes
+            .emptyTrash()
+            .then((n) => pushToast({ message: `Đã xóa vĩnh viễn ${n} ghi chú`, durationMs: 4000 }))
+            .catch((e) => pushToast({ message: `Không dọn được thùng rác: ${e}`, durationMs: 6000 }));
+        }}
+      />
+    </>
   );
 }

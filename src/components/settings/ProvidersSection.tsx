@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { Plug, Plus, Trash2, Check, X } from "lucide-react";
-import { listModels } from "../../lib/llm/openai";
-import { initLlmFetch } from "../../lib/llm/openai";
+import { useState } from "react";
+import { Check, ChevronDown, Eye, EyeOff, Loader2, Plus, Trash2, X } from "lucide-react";
+import { listModels, initLlmFetch } from "../../lib/llm/openai";
 import { useSettingsStore, PROVIDER_PRESETS, type LlmProvider } from "../../lib/store/settingsStore";
-import { useUi } from "../../lib/store/uiStore";
-
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+import { isTauri } from "../../lib/env";
+import { cn } from "../../lib/utils";
+import { SecondaryButton } from "../ui/Button";
+import { ConfirmDialog } from "../ui/Dialog";
+import { Menu, MenuItem } from "../ui/Menu";
 
 async function tauriFetch(): Promise<typeof fetch | null> {
   if (!isTauri) return null;
@@ -18,109 +19,150 @@ export async function ensureLlmFetch(): Promise<void> {
   if (f) initLlmFetch(f);
 }
 
-function ProviderRow({ provider }: { provider: LlmProvider }) {
+function Field({
+  label,
+  children,
+  htmlFor,
+  className,
+}: {
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <label htmlFor={htmlFor} className="mb-1 block text-footnote font-medium text-fg-secondary">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const input =
+  "h-9 w-full rounded-sm border border-hairline bg-app px-3 text-callout text-fg outline-none transition-colors focus:border-fg-tertiary";
+
+type TestState =
+  | { kind: "idle" }
+  | { kind: "testing" }
+  | { kind: "ok"; count: number }
+  | { kind: "fail"; message: string };
+
+function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete: () => void }) {
   const upsert = useSettingsStore((s) => s.upsertProvider);
-  const remove = useSettingsStore((s) => s.removeProvider);
   const setActive = useSettingsStore((s) => s.setActiveProvider);
   const activeId = useSettingsStore((s) => s.activeProviderId);
-  const pushToast = useUi((s) => s.pushToast);
-
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
+  const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [showKey, setShowKey] = useState(false);
+  const active = activeId === provider.id;
+  const id = (f: string) => `${provider.id}-${f}`;
 
-  const test = async () => {
-    setTesting(true);
-    setTestResult(null);
+  const runTest = async () => {
+    setTest({ kind: "testing" });
     try {
       const f = await tauriFetch();
       const models = await listModels(provider.baseUrl, provider.apiKey || undefined, f ?? undefined);
-      setTestResult("ok");
-      pushToast({
-        message: `Kết nối OK — ${models.length} models (vd: ${models[0] ?? "?"})`,
-        durationMs: 5000,
-      });
+      setTest({ kind: "ok", count: models.length });
     } catch (e) {
-      setTestResult("fail");
-      pushToast({ message: `Lỗi kết nối: ${e instanceof Error ? e.message : e}`, durationMs: 6000 });
-    } finally {
-      setTesting(false);
+      setTest({ kind: "fail", message: e instanceof Error ? e.message : String(e) });
     }
   };
 
-  const field = "px-2 py-1.5 text-[12.5px] rounded-[var(--radius-sm)] bg-[var(--bg-panel)] border border-[var(--border)] outline-none focus:border-[var(--accent)] text-[var(--text)] w-full";
-
   return (
-    <div
-      className={`rounded-[var(--radius-md)] border p-3 ${activeId === provider.id ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <Plug size={14} className="text-[var(--text-secondary)]" />
+    <div className={cn("rounded-md border bg-control p-4", active ? "border-fg-tertiary" : "border-hairline")}>
+      <div className="flex items-center gap-2.5">
         <input
+          id={id("name")}
           value={provider.name}
+          aria-label="Tên nhà cung cấp"
           onChange={(e) => void upsert(provider.id, { name: e.target.value })}
-          className={`${field} max-w-[160px] font-medium`}
-          placeholder="Tên provider"
+          className="min-w-0 flex-1 rounded-sm bg-transparent px-1 py-0.5 text-body font-semibold text-fg outline-none hover:bg-hover focus:bg-hover"
         />
-        {activeId === provider.id ? (
-          <span className="text-[11px] text-[var(--accent)] font-medium">Đang dùng</span>
+        {active ? (
+          <span className="inline-flex h-5 items-center rounded-full bg-accent px-2 text-caption font-semibold text-accent-fg">
+            Đang dùng
+          </span>
         ) : (
-          <button
-            onClick={() => setActive(provider.id)}
-            className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--accent)]"
-          >
+          <SecondaryButton className="h-7 px-3" onClick={() => setActive(provider.id)}>
             Dùng
-          </button>
+          </SecondaryButton>
         )}
-        <div className="flex-1" />
         <button
-          onClick={() => void test()}
-          disabled={testing}
-          className="text-[11.5px] px-2 py-1 rounded-[var(--radius-sm)] border border-[var(--border)] hover:border-[var(--accent)] text-[var(--text-secondary)] disabled:opacity-50"
+          type="button"
+          aria-label={`Xóa nhà cung cấp ${provider.name}`}
+          title="Xóa nhà cung cấp"
+          onClick={onDelete}
+          className="flex size-7 items-center justify-center rounded-sm text-fg-tertiary transition-colors hover:bg-hover hover:text-danger"
         >
-          {testing ? "Đang test…" : "Kiểm tra kết nối"}
-        </button>
-        {testResult === "ok" && <Check size={14} className="text-green-500" />}
-        {testResult === "fail" && <X size={14} className="text-[var(--danger)]" />}
-        <button
-          onClick={() => void remove(provider.id)}
-          title="Xóa provider"
-          className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-faint)] hover:text-[var(--danger)]"
-        >
-          <Trash2 size={13} />
+          <Trash2 size={14} aria-hidden="true" />
         </button>
       </div>
-      <div className="grid grid-cols-[1fr_1fr] gap-2">
-        <div>
-          <label className="text-[11px] text-[var(--text-faint)]">Base URL</label>
+
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <Field label="Base URL" htmlFor={id("url")}>
           <input
+            id={id("url")}
             value={provider.baseUrl}
             onChange={(e) => void upsert(provider.id, { baseUrl: e.target.value.trim() })}
-            className={field}
+            className={input}
             placeholder="https://api.openai.com"
+            spellCheck={false}
+            autoComplete="off"
           />
-        </div>
-        <div>
-          <label className="text-[11px] text-[var(--text-faint)]">Model</label>
+        </Field>
+        <Field label="Model" htmlFor={id("model")}>
           <input
+            id={id("model")}
             value={provider.model}
             onChange={(e) => void upsert(provider.id, { model: e.target.value.trim() })}
-            className={field}
+            className={input}
             placeholder="gpt-4o-mini"
+            spellCheck={false}
+            autoComplete="off"
           />
-        </div>
-        <div className="col-span-2">
-          <label className="text-[11px] text-[var(--text-faint)]">API Key</label>
-          <input
-            type={showKey ? "text" : "password"}
-            value={provider.apiKey}
-            onChange={(e) => void upsert(provider.id, { apiKey: e.target.value })}
-            onFocus={() => setShowKey(true)}
-            onBlur={() => setShowKey(false)}
-            className={field}
-            placeholder="sk-… (Ollama local để trống)"
-          />
-        </div>
+        </Field>
+        <Field label="API key" htmlFor={id("key")} className="col-span-2">
+          <div className="relative">
+            <input
+              id={id("key")}
+              type={showKey ? "text" : "password"}
+              value={provider.apiKey}
+              onChange={(e) => void upsert(provider.id, { apiKey: e.target.value })}
+              className={cn(input, "pr-10 font-mono")}
+              placeholder="sk-… (để trống với Ollama local)"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              aria-label={showKey ? "Ẩn API key" : "Hiện API key"}
+              onClick={() => setShowKey((v) => !v)}
+              className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-fg-tertiary hover:bg-hover hover:text-fg"
+            >
+              {showKey ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
+            </button>
+          </div>
+        </Field>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <SecondaryButton onClick={() => void runTest()} disabled={test.kind === "testing"}>
+          {test.kind === "testing" && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+          Kiểm tra kết nối
+        </SecondaryButton>
+        <span aria-live="polite" className="min-w-0 truncate text-footnote">
+          {test.kind === "ok" && (
+            <span className="inline-flex items-center gap-1 text-fg-secondary">
+              <Check size={13} aria-hidden="true" /> Kết nối được · {test.count} model
+            </span>
+          )}
+          {test.kind === "fail" && (
+            <span className="inline-flex items-center gap-1 text-danger" title={test.message}>
+              <X size={13} aria-hidden="true" /> {test.message}
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );
@@ -128,47 +170,48 @@ function ProviderRow({ provider }: { provider: LlmProvider }) {
 
 export function ProvidersSection() {
   const providers = useSettingsStore((s) => s.providers);
-  const loaded = useSettingsStore((s) => s.loaded);
-  const loadStore = useSettingsStore((s) => s.loadStore);
   const addProvider = useSettingsStore((s) => s.addProvider);
-  const [presetIdx, setPresetIdx] = useState(0);
-
-  useEffect(() => {
-    if (!loaded) void loadStore();
-  }, [loaded, loadStore]);
+  const removeProvider = useSettingsStore((s) => s.removeProvider);
+  const [deleting, setDeleting] = useState<LlmProvider | null>(null);
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[12px] text-[var(--text-secondary)]">
-        Hỗ trợ mọi provider chuẩn OpenAI-compatible. Keys lưu trong
-        <code className="mx-1 px-1 rounded bg-[var(--code-bg)]">providers.json</code>
-        trên máy bạn, không gửi đi đâu ngoài provider bạn chọn.
-      </p>
       {providers.map((p) => (
-        <ProviderRow key={p.id} provider={p} />
+        <ProviderCard key={p.id} provider={p} onDelete={() => setDeleting(p)} />
       ))}
-      <div className="flex items-center gap-2">
-        <select
-          value={presetIdx}
-          onChange={(e) => setPresetIdx(Number(e.target.value))}
-          className="px-2 py-1.5 text-[12.5px] rounded-[var(--radius-sm)] bg-[var(--bg-panel)] border border-[var(--border)] outline-none text-[var(--text)]"
-        >
-          {PROVIDER_PRESETS.map((p, i) => (
-            <option key={p.name} value={i}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={() => {
-            const preset = PROVIDER_PRESETS[presetIdx];
-            void addProvider({ ...preset, apiKey: "" });
-          }}
-          className="flex items-center gap-1.5 text-[12.5px] px-3 py-1.5 rounded-[var(--radius-sm)] border border-[var(--border)] hover:border-[var(--accent)] text-[var(--text-secondary)]"
-        >
-          <Plus size={13} /> Thêm provider
-        </button>
-      </div>
+      <Menu
+        align="start"
+        side="top"
+        width={260}
+        trigger={(p) => (
+          <button
+            type="button"
+            {...p}
+            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-hairline text-callout font-medium text-fg-secondary transition-colors hover:bg-hover hover:text-fg"
+          >
+            <Plus size={15} aria-hidden="true" />
+            Thêm nhà cung cấp
+            <ChevronDown size={13} aria-hidden="true" />
+          </button>
+        )}
+      >
+        {PROVIDER_PRESETS.map((preset) => (
+          <MenuItem key={preset.name} hint={preset.model} onSelect={() => void addProvider({ ...preset, apiKey: "" })}>
+            {preset.name}
+          </MenuItem>
+        ))}
+      </Menu>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={`Xóa nhà cung cấp “${deleting?.name ?? ""}”?`}
+        description="API key đã lưu của nhà cung cấp này cũng sẽ bị xóa khỏi máy."
+        confirmLabel="Xóa nhà cung cấp"
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => {
+          if (deleting) void removeProvider(deleting.id);
+          setDeleting(null);
+        }}
+      />
     </div>
   );
 }

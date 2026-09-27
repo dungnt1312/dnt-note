@@ -1,6 +1,6 @@
 import { syntaxTree } from "@codemirror/language";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
-import type { DecorationSet } from "@codemirror/view";
+import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import type { SyntaxNode, SyntaxNodeRef } from "@lezer/common";
 
@@ -8,7 +8,7 @@ export type DecorationSpec =
   | { kind: "mark"; from: number; to: number; class: string }
   | { kind: "replace"; from: number; to: number }
   | { kind: "line"; class: string }
-  | { kind: "widget"; from: number; to: number; widget: "checkbox"; checked: boolean };
+  | { kind: "widget"; from: number; to: number; widget: "checkbox" | "bullet"; checked: boolean };
 
 const HEADING_LINE_CLASS: Record<string, string> = {
   ATXHeading1: "cm-h1",
@@ -28,7 +28,7 @@ const INLINE_STYLES: Record<string, string> = {
   InlineCode: "cm-code",
 };
 
-const MARK_HIDE = new Set(["HeaderMark", "EmphasisMark", "StrikethroughMark", "CodeMark"]);
+const MARK_HIDE = new Set(["EmphasisMark", "StrikethroughMark", "CodeMark"]);
 
 /**
  * Line number of the closing frontmatter fence (1-based), or 0 when the doc
@@ -55,13 +55,13 @@ export function toggleTaskAt(state: EditorState, pos: number): TransactionSpec {
   };
 }
 
-function insideNodeOfType(node: SyntaxNode | null, name: string): boolean {
+function ancestorOfType(node: SyntaxNode | null, name: string): SyntaxNode | null {
   let cur: SyntaxNode | null = node;
   while (cur) {
-    if (cur.name === name) return true;
+    if (cur.name === name) return cur;
     cur = cur.parent;
   }
-  return false;
+  return null;
 }
 
 /** Climb to the top-level block node (direct child of the Document node). */
@@ -71,6 +71,12 @@ function topBlockOf(node: SyntaxNode): SyntaxNode {
     cur = cur.parent;
   }
   return cur;
+}
+
+/** Hide a mark plus the single space that follows it (`# `, `> `, `- `). */
+function hideWithSpace(from: number, to: number, lineText: string): DecorationSpec {
+  const end = lineText.charAt(to) === " " ? to + 1 : to;
+  return { kind: "replace", from, to: end };
 }
 
 /**
@@ -86,20 +92,31 @@ export function collectLineDecorations(
   lineText: string,
   isActive: boolean,
 ): DecorationSpec[] {
+  const block = topBlockOf(nodeRef.node);
+
+  // Code blocks keep their card styling even on the active line, so the block
+  // does not visually break apart while typing inside it.
+  const fenced = block.name === "FencedCode" ? block : ancestorOfType(nodeRef.node, "FencedCode");
+  if (fenced) {
+    const classes = ["cm-code-block"];
+    if (fenced.from >= lineFrom) classes.push("cm-code-block-begin");
+    if (fenced.to <= lineTo) classes.push("cm-code-block-end");
+    return [{ kind: "line", class: classes.join(" ") }];
+  }
   if (isActive) return [];
 
   const specs: DecorationSpec[] = [];
-  const block = topBlockOf(nodeRef.node);
 
-  // Block-level styling
   const headingClass = HEADING_LINE_CLASS[block.name];
   if (headingClass) {
     specs.push({ kind: "line", class: headingClass });
-  } else if (block.name === "FencedCode" || insideNodeOfType(block, "FencedCode")) {
-    specs.push({ kind: "line", class: "cm-code-block" });
-    return specs;
-  } else if (block.name === "Table" || insideNodeOfType(block, "Table")) {
+  } else if (block.name === "Table" || ancestorOfType(block, "Table")) {
     specs.push({ kind: "line", class: "cm-table" });
+    return specs;
+  } else if (block.name === "Blockquote") {
+    specs.push({ kind: "line", class: "cm-quote" });
+  } else if (block.name === "HorizontalRule") {
+    specs.push({ kind: "line", class: "cm-hr" });
     return specs;
   }
 
@@ -113,19 +130,33 @@ export function collectLineDecorations(
       ok = cursor.next(false); // skip this subtree
       continue;
     }
-    if (MARK_HIDE.has(cur.name)) {
-      specs.push({
-        kind: "replace",
-        from: cur.from - lineFrom,
-        to: cur.to - lineFrom,
-      });
+    const from = cur.from - lineFrom;
+    const to = cur.to - lineFrom;
+    if (cur.name === "HeaderMark") {
+      // Setext underline marks sit on their own line; ATX marks lead the line.
+      specs.push(from === 0 ? hideWithSpace(from, to, lineText) : { kind: "replace", from, to });
+    } else if (cur.name === "QuoteMark") {
+      specs.push(hideWithSpace(from, to, lineText));
+    } else if (cur.name === "ListMark") {
+      const isOrdered = cur.node.parent?.parent?.name === "OrderedList";
+      const isTask = /^\s*\[[ xX]\]/.test(lineText.slice(to + 1));
+      if (isOrdered) {
+        specs.push({ kind: "mark", from, to, class: "cm-list-number" });
+      } else if (isTask) {
+        specs.push(hideWithSpace(from, to, lineText));
+      } else {
+        const end = lineText.charAt(to) === " " ? to + 1 : to;
+        specs.push({ kind: "widget", from, to: end, widget: "bullet", checked: false });
+      }
+    } else if (MARK_HIDE.has(cur.name)) {
+      specs.push({ kind: "replace", from, to });
     } else if (cur.name === "TaskMarker") {
       specs.push({
         kind: "widget",
-        from: cur.from - lineFrom,
-        to: cur.to - lineFrom,
+        from,
+        to,
         widget: "checkbox",
-        checked: lineText.charAt(cur.from - lineFrom + 1) !== " ",
+        checked: lineText.charAt(from + 1) !== " ",
       });
     } else {
       const style = INLINE_STYLES[cur.name];
@@ -135,9 +166,9 @@ export function collectLineDecorations(
         const first = inner?.firstChild;
         const last = inner?.lastChild;
         if (first && last && last !== first) {
-          const from = first.to - lineFrom;
-          const to = last.from - lineFrom;
-          if (to > from) specs.push({ kind: "mark", from, to, class: style });
+          const a = first.to - lineFrom;
+          const b = last.from - lineFrom;
+          if (b > a) specs.push({ kind: "mark", from: a, to: b, class: style });
         }
       }
     }
@@ -159,6 +190,7 @@ class CheckboxWidget extends WidgetType {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = this.checked;
+    box.setAttribute("aria-label", this.checked ? "Đã xong" : "Chưa xong");
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const pos = view.posAtDOM(box);
@@ -172,16 +204,35 @@ class CheckboxWidget extends WidgetType {
   }
 }
 
+class BulletWidget extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-bullet";
+    span.setAttribute("aria-hidden", "true");
+    span.textContent = "•";
+    return span;
+  }
+}
+
+const bulletWidget = new BulletWidget();
+
 function buildDecorations(view: EditorView): DecorationSet {
   const state = view.state;
   const fmEnd = frontmatterEndLine(state);
   const ranges: { from: number; to: number; value: Decoration }[] = [];
 
-  const sel = state.selection.main;
-  const activeLines = new Set([
-    state.doc.lineAt(sel.head).number,
-    state.doc.lineAt(sel.anchor).number,
-  ]);
+  // Without focus every line renders as preview — the caret is not visible anyway.
+  const activeLines = new Set<number>();
+  if (view.hasFocus) {
+    for (const r of state.selection.ranges) {
+      const a = state.doc.lineAt(r.from).number;
+      const b = state.doc.lineAt(r.to).number;
+      for (let n = a; n <= b; n++) activeLines.add(n);
+    }
+  }
 
   for (const { from, to } of view.visibleRanges) {
     for (let n = state.doc.lineAt(from).number; n <= state.doc.lineAt(to).number; n++) {
@@ -201,26 +252,18 @@ function buildDecorations(view: EditorView): DecorationSet {
       for (const spec of collectLineDecorations(node, line.from, line.to, line.text, isActive)) {
         if (spec.kind === "line") {
           ranges.push({ from: line.from, to: line.from, value: Decoration.line({ class: spec.class }) });
-        } else if (spec.kind === "mark") {
-          ranges.push({
-            from: line.from + spec.from,
-            to: line.from + spec.to,
-            value: Decoration.mark({ class: spec.class }),
-          });
+          continue;
+        }
+        const a = line.from + spec.from;
+        const b = line.from + spec.to;
+        if (b <= a) continue;
+        if (spec.kind === "mark") {
+          ranges.push({ from: a, to: b, value: Decoration.mark({ class: spec.class }) });
         } else if (spec.kind === "replace") {
-          const a = line.from + spec.from;
-          const b = line.from + spec.to;
-          if (b > a) ranges.push({ from: a, to: b, value: Decoration.replace({}) });
+          ranges.push({ from: a, to: b, value: Decoration.replace({}) });
         } else {
-          const a = line.from + spec.from;
-          const b = line.from + spec.to;
-          if (b > a) {
-            ranges.push({
-              from: a,
-              to: b,
-              value: Decoration.replace({ widget: new CheckboxWidget(spec.checked) }),
-            });
-          }
+          const widget = spec.widget === "bullet" ? bulletWidget : new CheckboxWidget(spec.checked);
+          ranges.push({ from: a, to: b, value: Decoration.replace({ widget }) });
         }
       }
     }
@@ -237,13 +280,8 @@ export function livePreview(): Extension {
       constructor(view: EditorView) {
         this.decorations = buildDecorations(view);
       }
-      update(u: {
-        view: EditorView;
-        docChanged: boolean;
-        viewportChanged: boolean;
-        selectionSet: boolean;
-      }) {
-        if (u.docChanged || u.viewportChanged || u.selectionSet) {
+      update(u: ViewUpdate) {
+        if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged) {
           this.decorations = buildDecorations(u.view);
         }
       }

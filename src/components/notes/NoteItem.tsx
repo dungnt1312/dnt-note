@@ -1,67 +1,71 @@
-import { Pin, Trash2 } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { FileText, MoreHorizontal, Pin, PinOff, Trash2 } from "lucide-react";
 import type { NoteMeta } from "../../lib/api/notes";
-import { dateLabel } from "./NoteList";
+import { shortDate } from "../../lib/dates";
+import { SidebarRow } from "../layout/SidebarRow";
+import { Menu, MenuItem, MenuSeparator } from "../ui/Menu";
 
 interface NoteItemProps {
   note: NoteMeta;
   selected: boolean;
   onSelect: (id: string) => void;
   onDelete?: (id: string) => void;
-  showPin?: boolean;
+  onTogglePin?: (id: string, pinned: boolean) => void;
 }
 
-export function NoteItem({ note, selected, onSelect, onDelete, showPin }: NoteItemProps) {
+/** Compact ChatGPT-style row: icon + title, then "date · snippet" on one line. */
+export function NoteItem({ note, selected, onSelect, onDelete, onTogglePin }: NoteItemProps) {
+  const hasActions = Boolean(onDelete || onTogglePin);
   return (
-    <div
-      role="button"
-      onClick={() => onSelect(note.id)}
-      className={cn(
-        "group w-full text-left px-3 py-2.5 rounded-[var(--radius-md)] mb-0.5 transition-colors cursor-pointer",
-        "hover:bg-[var(--bg-hover)]",
-        selected ? "bg-[var(--accent-soft)]" : "bg-transparent",
-      )}
-    >
-      <div className="flex items-center gap-1.5">
-        {note.pinned && showPin && (
-          <span className="text-[var(--accent)] shrink-0">
-            <Pin size={12} strokeWidth={2.5} />
-          </span>
-        )}
-        <span className="flex-1 truncate text-[14px] font-medium text-[var(--text)]">
-          {note.title}
-        </span>
-        <span className="text-[11px] text-[var(--text-faint)] shrink-0 group-hover:hidden">
-          {dateLabel(note.updated)}
-        </span>
-        {onDelete && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(note.id);
-            }}
-            title="Xóa ghi chú"
-            className="hidden group-hover:flex text-[var(--text-faint)] hover:text-[var(--danger)] shrink-0"
+    <SidebarRow
+      selected={selected}
+      onSelect={() => onSelect(note.id)}
+      actions={
+        hasActions ? (
+          <Menu
+            width={200}
+            trigger={(p) => (
+              <button
+                type="button"
+                {...p}
+                aria-label={`Tùy chọn cho “${note.title}”`}
+                title="Tùy chọn"
+                className="flex size-7 items-center justify-center rounded-sm text-fg-secondary hover:bg-selected hover:text-fg"
+              >
+                <MoreHorizontal size={15} aria-hidden="true" />
+              </button>
+            )}
           >
-            <Trash2 size={13} />
-          </button>
+            {onTogglePin && (
+              <MenuItem
+                icon={note.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                onSelect={() => onTogglePin(note.id, !note.pinned)}
+              >
+                {note.pinned ? "Bỏ ghim" : "Ghim lên đầu"}
+              </MenuItem>
+            )}
+            {onTogglePin && onDelete && <MenuSeparator />}
+            {onDelete && (
+              <MenuItem destructive icon={<Trash2 size={14} />} onSelect={() => onDelete(note.id)}>
+                Xóa ghi chú
+              </MenuItem>
+            )}
+          </Menu>
+        ) : undefined
+      }
+    >
+      <div className="flex items-center gap-1.5 pr-6">
+        <FileText size={12} aria-hidden="true" className="shrink-0 text-fg-tertiary" />
+        <span className="min-w-0 flex-1 truncate text-callout font-medium text-fg">
+          {note.title || "Chưa đặt tên"}
+        </span>
+        {note.pinned && (
+          <Pin size={11} aria-label="Đã ghim" className="shrink-0 fill-current text-fg-tertiary" />
         )}
       </div>
-      <div className="mt-0.5 text-[12px] text-[var(--text-secondary)] truncate">
-        {note.snippet || "—"}
+      <div className="mt-0.5 flex min-w-0 gap-1.5 pl-[18px] text-footnote">
+        <span className="shrink-0 text-fg-secondary">{shortDate(note.updated)}</span>
+        <span className="truncate text-fg-tertiary">{note.snippet || "Chưa có nội dung"}</span>
       </div>
-      {note.tags.length > 0 && (
-        <div className="mt-1 flex gap-1 flex-wrap">
-          {note.tags.map((t) => (
-            <span
-              key={t}
-              className="text-[11px] px-1.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-secondary)]"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
+    </SidebarRow>
   );
 }

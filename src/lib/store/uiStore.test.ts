@@ -34,4 +34,29 @@ describe("uiStore toasts", () => {
     vi.advanceTimersByTime(500);
     expect(useUi.getState().toasts).toHaveLength(0);
   });
+
+  it("a new toast replaces the current one", () => {
+    useUi.getState().pushToast({ message: "a" });
+    useUi.getState().pushToast({ message: "b" });
+    expect(useUi.getState().toasts.map((t) => t.message)).toEqual(["b"]);
+  });
+});
+
+describe("uiStore sections", () => {
+  beforeEach(() => {
+    useUi.setState({ section: "notes", workspace: "notes", settingsOpen: false });
+  });
+
+  it("switching to chat also switches the sidebar workspace", () => {
+    useUi.getState().setSection("chat");
+    expect(useUi.getState()).toMatchObject({ section: "chat", workspace: "chat" });
+  });
+
+  it("settings keeps the sidebar list and closing returns to the previous section", () => {
+    useUi.getState().setSection("chat");
+    useUi.getState().setSettingsOpen(true);
+    expect(useUi.getState()).toMatchObject({ section: "settings", workspace: "chat", settingsOpen: true });
+    useUi.getState().setSettingsOpen(false);
+    expect(useUi.getState()).toMatchObject({ section: "chat", settingsOpen: false });
+  });
 });

@@ -1,19 +1,18 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api/notes";
+import { isTauri } from "./lib/env";
 import { ThemeProvider } from "./components/theme/ThemeProvider";
-import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NoteEditor } from "./components/notes/NoteEditor";
 import { CommandPalette } from "./components/layout/CommandPalette";
-import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { SettingsPage } from "./components/settings/SettingsPage";
 import { ChatPanel } from "./components/chat/ChatPanel";
 import { ensureLlmFetch } from "./components/settings/ProvidersSection";
-import { UndoToast } from "./components/common/UndoToast";
+import { Toast } from "./components/common/Toast";
 import { useNotesStore } from "./lib/store/notesStore";
+import { useChatStore } from "./lib/store/chatStore";
 import { useUi } from "./lib/store/uiStore";
-
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function useNoteEvents() {
   useEffect(() => {
@@ -42,6 +41,65 @@ function useNoteEvents() {
   }, []);
 }
 
+function useShortcuts() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const ui = useUi.getState();
+      if (e.key === "Escape") {
+        if (ui.section === "settings" && !ui.paletteOpen) ui.setSettingsOpen(false);
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+
+      if (key === "z" && !e.shiftKey) {
+        // Only hijack Ctrl+Z for an undoable toast when focus is not in a text field.
+        const target = e.target as HTMLElement | null;
+        const editing = target?.closest("input, textarea, .cm-editor");
+        const undoable = ui.toasts.find((t) => t.onAction);
+        if (undoable && !editing) {
+          e.preventDefault();
+          undoable.onAction?.();
+          ui.dismissToast(undoable.id);
+        }
+        return;
+      }
+
+      const run = (fn: () => void) => {
+        e.preventDefault();
+        fn();
+      };
+      if (e.shiftKey && key === "o") return run(() => {
+        void useChatStore.getState().newChat();
+        ui.setSection("chat");
+      });
+      if (e.shiftKey && key === "j") return run(() => {
+        if (ui.section !== "notes") ui.setSection("notes");
+        ui.setChatOpen(!(ui.section === "notes" && ui.chatOpen));
+      });
+      if (e.shiftKey) return;
+      if (key === "n") return run(() => {
+        ui.setSection("notes");
+        void useNotesStore.getState().create();
+      });
+      if (key === "k" || key === "p") return run(() => ui.setPaletteOpen(!ui.paletteOpen));
+      if (key === "1") return run(() => ui.setSection("notes"));
+      if (key === "2") return run(() => ui.setSection("chat"));
+      if (key === ",") return run(() => ui.setSettingsOpen(ui.section !== "settings"));
+      if (key === "\\") return run(ui.toggleSidebar);
+      if (key === "f") return run(() => {
+        ui.setSection("notes");
+        if (!ui.sidebarVisible) ui.toggleSidebar();
+        requestAnimationFrame(() => document.getElementById("note-search")?.focus());
+      });
+      if (key === "s") return run(() => void useNotesStore.getState().flushSave());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -52,66 +110,29 @@ export default function App() {
 
 function Shell() {
   const load = useNotesStore((s) => s.load);
-  const create = useNotesStore((s) => s.create);
-  const flushSave = useNotesStore((s) => s.flushSave);
-  const setPaletteOpen = useUi((s) => s.setPaletteOpen);
-  const paletteOpen = useUi((s) => s.paletteOpen);
+  const section = useUi((s) => s.section);
+  const chatOpen = useUi((s) => s.chatOpen);
   useNoteEvents();
+  useShortcuts();
 
   useEffect(() => {
     void load();
     void ensureLlmFetch();
   }, [load]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        const ui = useUi.getState();
-        if (ui.settingsOpen) ui.setSettingsOpen(false);
-        return;
-      }
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "z") {
-        const toasts = useUi.getState().toasts;
-        const undoable = [...toasts].reverse().find((t) => t.onAction);
-        if (undoable) {
-          e.preventDefault();
-          undoable.onAction?.();
-          useUi.getState().dismissToast(undoable.id);
-        }
-        return;
-      }
-      if (!mod) return;
-      const key = e.key.toLowerCase();
-      if (key === "n") {
-        e.preventDefault();
-        void create();
-      } else if (key === "k" || key === "p") {
-        e.preventDefault();
-        setPaletteOpen(!paletteOpen);
-      } else if (key === "f") {
-        e.preventDefault();
-        document.getElementById("note-search")?.focus();
-      } else if (key === "s") {
-        e.preventDefault();
-        void flushSave();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [create, flushSave, setPaletteOpen, paletteOpen]);
-
   return (
-    <div className="h-screen flex flex-col">
-      <TitleBar />
-      <div className="flex-1 flex min-h-0">
-        <Sidebar />
-        <NoteEditor />
-        <ChatPanel />
-      </div>
+    <div className="flex h-screen min-h-0 bg-app text-fg">
+      <Sidebar />
+      {section === "notes" && (
+        <>
+          <NoteEditor />
+          {chatOpen && <ChatPanel variant="side" />}
+        </>
+      )}
+      {section === "chat" && <ChatPanel variant="full" />}
+      {section === "settings" && <SettingsPage />}
       <CommandPalette />
-      <SettingsDialog />
-      <UndoToast />
+      <Toast />
     </div>
   );
 }
