@@ -9,9 +9,9 @@ import {
 } from "react";
 import { cn } from "../../lib/utils";
 
-const MenuContext = createContext<{ close: () => void }>({ close: () => {} });
+export const MenuContext = createContext<{ close: () => void }>({ close: () => {} });
 
-const ITEMS = "[role^=menuitem]:not([disabled])";
+export const MENU_ITEMS = "[role^=menuitem]:not([disabled])";
 
 interface MenuProps {
   /** Renders the trigger; spread `props` onto a button. */
@@ -49,7 +49,7 @@ export function Menu({ trigger, align = "end", side = "bottom", width = 232, chi
     document.addEventListener("keydown", onKey, true);
     requestAnimationFrame(() => {
       const list = listRef.current;
-      (list?.querySelector<HTMLElement>(`${ITEMS}[aria-checked=true]`) ?? list?.querySelector<HTMLElement>(ITEMS))?.focus();
+      (list?.querySelector<HTMLElement>(`${MENU_ITEMS}[aria-checked=true]`) ?? list?.querySelector<HTMLElement>(MENU_ITEMS))?.focus();
     });
     return () => {
       document.removeEventListener("mousedown", onDown);
@@ -60,14 +60,14 @@ export function Menu({ trigger, align = "end", side = "bottom", width = 232, chi
   const onListKey = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
-    const items = Array.from(listRef.current?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
+    const items = Array.from(listRef.current?.querySelectorAll<HTMLElement>(MENU_ITEMS) ?? []);
     const idx = items.indexOf(document.activeElement as HTMLElement);
     const next = e.key === "ArrowDown" ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length;
     items[next]?.focus();
   };
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="pointer-events-auto relative">
       {trigger({
         onClick: () => setOpen((o) => !o),
         "aria-expanded": open,
