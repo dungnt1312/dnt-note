@@ -142,9 +142,11 @@ pub fn run() {
                 mark_onboarded(&handle);
             }
 
-            // Clean attachments no note references anymore.
+            // Clean attachments no note or chat references anymore.
             {
-                let refs = notes_store.attachment_refs();
+                let mut refs = notes_store.attachment_refs();
+                // Chat-attached files must survive orphan cleanup too.
+                refs.extend(commands::chats::chats_attachment_names(&handle));
                 let att_dir = app_data_dir(&handle).join("attachments");
                 if let Err(e) = notes_core::attachments::cleanup_orphans(
                     &att_dir,
