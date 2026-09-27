@@ -15,6 +15,7 @@ pub const ALLOWED_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "bmp", // images
     "pdf", "docx", "rtf", "odt", "txt", "md", "csv", "json",
     "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
+    "mp3", "wav", "webm", "m4a", "ogg", // audio
 ];
 
 pub fn is_allowed(path: &Path) -> bool {
@@ -59,28 +60,47 @@ pub fn refs_in_body(body: &str) -> Vec<String> {
     out
 }
 
-/// Copy a file into the attachments dir as `<uuid>-<original name>`.
-pub fn save_file(attachments_dir: &Path, src: &Path) -> Result<String> {
-    if !is_allowed(src) {
+fn validate_upload(file_name: &str, size: u64) -> Result<()> {
+    if file_name.is_empty() || file_name.contains('/') || file_name.contains('\\') {
+        return Err(NoteError::Unknown("Tên file không hợp lệ".into()));
+    }
+    let path = Path::new(file_name);
+    if !is_allowed(path) {
         return Err(NoteError::Unknown(format!(
             "Định dạng không hỗ trợ: {}",
-            src.extension().and_then(|e| e.to_str()).unwrap_or("?")
+            path.extension().and_then(|e| e.to_str()).unwrap_or("?")
         )));
     }
-    let size = fs::metadata(src)?.len();
     if size > MAX_FILE_BYTES {
         return Err(NoteError::Unknown(format!(
             "File quá lớn ({:.1}MB, giới hạn 25MB)",
             size as f64 / (1024.0 * 1024.0)
         )));
     }
+    Ok(())
+}
+
+/// Copy a file into the attachments dir as `<uuid>-<original name>`.
+pub fn save_file(attachments_dir: &Path, src: &Path) -> Result<String> {
     let file_name = src
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| NoteError::Unknown("Tên file không hợp lệ".into()))?;
+    validate_upload(file_name, 0)?;
+    validate_upload(file_name, fs::metadata(src)?.len())?;
     let stored = format!("{}-{}", uuid::Uuid::new_v4(), file_name);
     fs::create_dir_all(attachments_dir)?;
     fs::copy(src, attachments_dir.join(&stored))?;
+    Ok(stored)
+}
+
+/// Write raw bytes into the attachments dir as `<uuid>-<file_name>`,
+/// with the same validation as `save_file`.
+pub fn save_bytes(attachments_dir: &Path, file_name: &str, bytes: &[u8]) -> Result<String> {
+    validate_upload(file_name, bytes.len() as u64)?;
+    let stored = format!("{}-{}", uuid::Uuid::new_v4(), file_name);
+    fs::create_dir_all(attachments_dir)?;
+    fs::write(attachments_dir.join(&stored), bytes)?;
     Ok(stored)
 }
 
@@ -259,6 +279,18 @@ mod tests {
         let big = tmp.path().join("big.md");
         fs::write(&big, vec![b'x'; (MAX_FILE_BYTES + 1) as usize]).unwrap();
         assert!(save_file(&dir, &big).is_err());
+    }
+
+    #[test]
+    fn save_bytes_validates_and_writes() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("att");
+        let stored = save_bytes(&dir, "voice.webm", b"abc").unwrap();
+        assert!(stored.ends_with("-voice.webm"));
+        assert_eq!(fs::read(dir.join(&stored)).unwrap(), b"abc");
+        assert!(save_bytes(&dir, "x.exe", b"MZ").is_err());
+        assert!(save_bytes(&dir, "../a.png", b"a").is_err());
+        assert!(save_bytes(&dir, "big.png", &vec![0u8; (MAX_FILE_BYTES + 1) as usize]).is_err());
     }
 
     #[test]

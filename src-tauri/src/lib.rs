@@ -272,6 +272,12 @@ pub fn run() {
             commands::attachments::extract_attachment_text,
             commands::attachments::prepare_attachment_image,
             commands::attachments::cleanup_orphan_attachments,
+            commands::media::list_media,
+            commands::media::rename_media,
+            commands::media::delete_media,
+            commands::media::import_media,
+            commands::media::attach_bytes,
+            commands::media::attachments_dir_path,
             commands::sync::set_sync_folder,
             commands::sync::get_sync_folder,
         ])

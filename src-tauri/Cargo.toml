@@ -26,6 +26,7 @@ tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pdf-extract = "0.9"
+base64 = "0.22"
 notes-core = { path = "crates/notes-core" }
 
 [profile.release]

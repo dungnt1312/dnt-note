@@ -6,11 +6,11 @@ use tauri::{Manager, State};
 
 type CmdResult<T> = Result<T, String>;
 
-fn err_of(e: impl std::fmt::Display) -> String {
+pub(crate) fn err_of(e: impl std::fmt::Display) -> String {
     format!("attachment-error: {e}")
 }
 
-fn attachments_dir(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
+pub(crate) fn attachments_dir(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
