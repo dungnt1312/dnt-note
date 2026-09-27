@@ -167,14 +167,20 @@ pub fn run() {
 
             // Clean attachments no note references anymore.
             {
-                let refs = notes_store.attachment_refs();
+                // Union with the sync folder's notes: ones not yet mirrored in
+                // must still protect their attachments on both sides.
+                let sync_dir = get_sync_dir(&handle);
+                let mut refs = notes_store.attachment_refs();
+                if let Some(d) = &sync_dir {
+                    refs.extend(notes_core::attachments::refs_in_dir(d));
+                }
                 let att_dir = app_data_dir(&handle).join("attachments");
                 let grace = notes_core::attachments::ORPHAN_GRACE;
                 if let Err(e) = notes_core::attachments::cleanup_orphans_in(&att_dir, &refs, grace) {
                     eprintln!("attachment cleanup: {e}");
                 }
                 // Also prune the sync mirror so orphans are not copied back.
-                if let Some(sync_dir) = get_sync_dir(&handle) {
+                if let Some(sync_dir) = &sync_dir {
                     let remote = sync_dir.join("attachments");
                     if let Err(e) = notes_core::attachments::cleanup_orphans_in(&remote, &refs, grace) {
                         eprintln!("sync attachment cleanup: {e}");

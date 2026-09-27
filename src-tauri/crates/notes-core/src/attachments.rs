@@ -114,6 +114,25 @@ pub fn unique_ref_count(body: &str) -> usize {
     seen.len()
 }
 
+/// Attachment refs from every `*.md` in `dir` and `dir/.trash` (raw text,
+/// no frontmatter parsing, so unparseable notes still protect their files).
+pub fn refs_in_dir(dir: &Path) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for d in [dir.to_path_buf(), dir.join(".trash")] {
+        let Ok(entries) = fs::read_dir(&d) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") || !path.is_file() {
+                continue;
+            }
+            if let Ok(text) = fs::read_to_string(&path) {
+                out.extend(refs_in_body(&text));
+            }
+        }
+    }
+    out
+}
+
 /// In-flight copy temp file (`.<name>.part`); skipped by scans.
 pub fn is_temp_name(name: &str) -> bool {
     name.starts_with('.') && name.ends_with(".part")
@@ -490,6 +509,38 @@ mod tests {
         assert_eq!(cleanup_orphans_in(&remote, &refs, std::time::Duration::from_secs(3600)).unwrap(), 0);
         assert!(is_temp_name(".x.png.part"));
         assert!(!is_temp_name("x.png"));
+    }
+
+    #[test]
+    fn remote_only_note_protects_old_file_in_both_dirs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let sync = tmp.path().join("sync");
+        let local = tmp.path().join("local");
+        let remote = sync.join("attachments");
+        fs::create_dir_all(sync.join(".trash")).unwrap();
+        fs::create_dir_all(&local).unwrap();
+        fs::create_dir_all(&remote).unwrap();
+        fs::write(sync.join("r1.md"), "---
+id: r1
+---
+![x](attachments/u-a%20b.png)").unwrap();
+        fs::write(sync.join(".trash").join("t1.md"), "[y](attachments/t.pdf)").unwrap();
+        fs::write(sync.join("junk.txt"), "(attachments/z.png)").unwrap();
+        for d in [&local, &remote] {
+            fs::write(d.join("u-a b.png"), "a").unwrap();
+            fs::write(d.join("t.pdf"), "t").unwrap();
+            fs::write(d.join("z.png"), "z").unwrap();
+        }
+        let refs = refs_in_dir(&sync);
+        assert!(refs.contains("u-a b.png") && refs.contains("t.pdf") && !refs.contains("z.png"));
+        assert!(refs_in_dir(&tmp.path().join("missing")).is_empty());
+        let mut all: HashSet<String> = HashSet::new(); // no local notes
+        all.extend(refs);
+        for d in [&local, &remote] {
+            assert_eq!(cleanup_orphans_in(d, &all, std::time::Duration::ZERO).unwrap(), 1);
+            assert!(d.join("u-a b.png").exists() && d.join("t.pdf").exists());
+            assert!(!d.join("z.png").exists());
+        }
     }
 
     #[test]
