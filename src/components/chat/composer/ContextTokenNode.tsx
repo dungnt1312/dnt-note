@@ -93,7 +93,7 @@ export class ContextTokenNode extends DecoratorNode<ReactNode> {
       <span
         contentEditable={false}
         data-token-kind={this.kind}
-        className="mx-0.5 inline-flex h-[22px] max-w-[220px] items-center gap-1 rounded-[7px] border border-hairline bg-subtle pl-1.5 pr-2 align-middle text-footnote text-fg"
+        className="mx-1 inline-flex h-[22px] max-w-[220px] items-center gap-1 rounded-[7px] border border-hairline bg-subtle pl-1.5 pr-2 align-middle text-footnote text-fg"
       >
         <Icon size={11} aria-hidden="true" className="shrink-0 text-fg-secondary" />
         <span className="truncate">{this.label}</span>

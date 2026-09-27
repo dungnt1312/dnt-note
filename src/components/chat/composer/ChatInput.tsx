@@ -7,12 +7,18 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import {
   $createLineBreakNode,
+  $createRangeSelection,
   $getSelection,
   $isRangeSelection,
   $getRoot,
+  $setSelection,
   COMMAND_PRIORITY_HIGH,
+  ElementNode,
+  KEY_BACKSPACE_COMMAND,
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
+  TextNode,
+  type LexicalNode,
   type EditorState,
   type LexicalEditor,
   type PasteCommandType,
@@ -87,6 +93,63 @@ function BehaviorPlugin({
       COMMAND_PRIORITY_HIGH,
     );
   }, [editor, onFilesPaste, onLongTextPaste]);
+
+  // Backspace next to a token removes the WHOLE token — a half-glanced chip
+  // (e.g. only its trailing space deleted) must not be reachable.
+  useEffect(() => {
+    return editor.registerCommand(
+      KEY_BACKSPACE_COMMAND,
+      (event: KeyboardEvent) => {
+        if (event.isComposing) return false;
+        let handled = false;
+        editor.getEditorState().read(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+          const node = sel.anchor.getNode();
+          const offset = sel.anchor.offset;
+          let target: LexicalNode | null = null;
+          if (node instanceof ContextTokenNode) {
+            target = node;
+          } else if (node instanceof TextNode) {
+            if (offset === 0) target = node.getPreviousSibling();
+          } else if (node instanceof ElementNode) {
+            target = node.getChildAtIndex(offset - 1);
+          }
+          if (target instanceof ContextTokenNode) handled = true;
+        });
+        if (!handled) return false;
+        event.preventDefault();
+        editor.update(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+          const node = sel.anchor.getNode();
+          const offset = sel.anchor.offset;
+          let target: LexicalNode | null = null;
+          if (node instanceof ContextTokenNode) {
+            target = node;
+          } else if (node instanceof TextNode) {
+            if (offset === 0) target = node.getPreviousSibling();
+          } else if (node instanceof ElementNode) {
+            target = node.getChildAtIndex(offset - 1);
+          }
+          if (target instanceof ContextTokenNode) {
+            const prev = target.getPreviousSibling();
+            target.remove();
+            // Anchor caret where the token was: on the preceding text node end.
+            if (prev instanceof TextNode) {
+              const newSel = $createRangeSelection();
+              const len = prev.getTextContent().length;
+              newSel.anchor.set(prev.getKey(), len, "text");
+              newSel.focus.set(prev.getKey(), len, "text");
+              $setSelection(newSel);
+            }
+          }
+        });
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+  }, [editor]);
 
   return null;
 }
