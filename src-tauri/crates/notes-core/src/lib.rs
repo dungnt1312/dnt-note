@@ -3,6 +3,7 @@ pub mod error;
 pub mod media;
 pub mod note;
 pub mod note_file;
+pub mod skills;
 pub mod store;
 pub mod sync;
 pub mod watcher;

@@ -4,3 +4,4 @@ pub mod media;
 pub mod notes;
 pub mod stats;
 pub mod sync;
+pub mod skills;

@@ -43,6 +43,20 @@ fn mark_onboarded(app: &AppHandle) {
     }
 }
 
+fn skills_seeded(app: &AppHandle) -> bool {
+    settings_store(app)
+        .and_then(|s| s.get("skillsSeeded"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn mark_skills_seeded(app: &AppHandle) {
+    if let Some(store) = settings_store(app) {
+        store.set("skillsSeeded", true);
+        let _ = store.save();
+    }
+}
+
 fn get_sync_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     let store = settings_store(app)?;
     let value = store.get("syncFolder")?;
@@ -140,6 +154,15 @@ pub fn run() {
                 commands::notes::seed_demo_notes(&mut notes_store)
                     .map_err(|e| format!("seed demo: {e}"))?;
                 mark_onboarded(&handle);
+            }
+
+            if !skills_seeded(&handle) {
+                match commands::skills::skills_dir(&handle)
+                    .and_then(|d| commands::skills::seed_bundled(&d).map_err(|e| e.to_string()))
+                {
+                    Ok(_) => mark_skills_seeded(&handle),
+                    Err(e) => eprintln!("seed skills: {e}"),
+                }
             }
 
             // Clean attachments no note references anymore.
@@ -253,6 +276,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::skills::list_skills,
+            commands::skills::read_skill,
+            commands::skills::save_skill,
+            commands::skills::delete_skill,
+            commands::skills::set_skill_enabled,
+            commands::skills::skills_dir_path,
             commands::notes::list_notes,
             commands::notes::read_note,
             commands::notes::create_note,

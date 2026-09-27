@@ -1,4 +1,5 @@
 use notes_core::store::NotesStore;
+use notes_core::skills;
 use serde_json::{json, Value};
 
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -88,6 +89,20 @@ pub fn tool_definitions() -> Value {
                     "properties": { "id": { "type": "string" } },
                     "required": ["id"]
                 }
+            },
+            {
+                "name": "list_skills",
+                "description": "Liệt kê các Agent Skill (name, description, enabled) của DNT Note.",
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "get_skill",
+                "description": "Lấy nội dung hướng dẫn (markdown) của một skill theo tên.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "name": { "type": "string" } },
+                    "required": ["name"]
+                }
             }
         ]
     })
@@ -97,6 +112,11 @@ fn tool_text(result: Value) -> Value {
     json!({
         "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }]
     })
+}
+
+fn skills_dir(store: &NotesStore) -> std::path::PathBuf {
+    let notes = store.notes_dir();
+    notes.parent().unwrap_or(notes).join("skills")
 }
 
 fn call_tool(store: &mut NotesStore, name: &str, args: &Value) -> Value {
@@ -176,6 +196,14 @@ fn call_tool(store: &mut NotesStore, name: &str, args: &Value) -> Value {
                 "note": "Mở URL này để focus ghi chú trong app DNT Note."
             }))
         }
+        "list_skills" => tool_text(json!({ "skills": skills::list_skills(&skills_dir(store)) })),
+        "get_skill" => {
+            let name = s(&args["name"]).unwrap_or_default();
+            match skills::read_skill(&skills_dir(store), &name) {
+                Ok(skill) => json!({ "content": [{ "type": "text", "text": skill.body }] }),
+                Err(e) => tool_text(json!({ "error": e.to_string() })),
+            }
+        }
         other => tool_text(json!({ "error": format!("Unknown tool: {other}") })),
     }
 }
@@ -247,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_has_seven_tools() {
+    fn tools_list_has_nine_tools() {
         let (_tmp, mut store) = store_with_one_note();
         let msg = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
         let resp = handle_message(&msg, &mut store).unwrap();
@@ -257,8 +285,32 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names.len(), 7);
+        assert_eq!(names.len(), 9);
         assert!(names.contains(&"open_note"));
+        assert!(names.contains(&"get_skill"));
+    }
+
+    #[test]
+    fn skills_tools_work() {
+        let (tmp, mut store) = store_with_one_note();
+        let skill = skills::Skill {
+            name: "demo-skill".into(),
+            description: "Mô tả".into(),
+            enabled: false,
+            body: "Làm A rồi B".into(),
+        };
+        skills::save_skill(&tmp.path().join("skills"), &skill).unwrap();
+        let call = |store: &mut NotesStore, name: &str, args: Value| {
+            let msg = json!({ "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                "params": { "name": name, "arguments": args } });
+            handle_message(&msg, store).unwrap()["result"]["content"][0]["text"]
+                .as_str().unwrap().to_string()
+        };
+        let list: Value = serde_json::from_str(&call(&mut store, "list_skills", json!({}))).unwrap();
+        assert_eq!(list["skills"][0]["name"], "demo-skill");
+        assert_eq!(list["skills"][0]["enabled"], false);
+        assert_eq!(call(&mut store, "get_skill", json!({ "name": "demo-skill" })), "Làm A rồi B");
+        assert!(call(&mut store, "get_skill", json!({ "name": "nope" })).contains("error"));
     }
 
     #[test]
