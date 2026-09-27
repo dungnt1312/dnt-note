@@ -166,11 +166,9 @@ export function appendNoteToken(editor: LexicalEditor, note: { id: string; title
   editor.update(
     () => {
       const root = $getRoot();
-      let p = root.getLastChild();
-      if (!$isParagraphNode(p)) {
-        p = $createParagraphNode();
-        root.append(p);
-      }
+      const existing = root.getLastChild();
+      const p = $isParagraphNode(existing) ? existing : $createParagraphNode();
+      if (p !== existing) root.append(p);
       const last = p.getLastDescendant();
       if (last instanceof TextNode && !/\s$/.test(last.getTextContent())) {
         p.append($createTextNode(" "));
