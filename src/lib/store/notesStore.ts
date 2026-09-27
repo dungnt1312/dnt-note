@@ -13,6 +13,9 @@ interface NotesState {
   body: string | null;
   saveState: SaveState;
   lastDeleted: { id: string; title: string } | null;
+  /** Bumped on every notes://changed event (external/on-disk changes). */
+  changeSeq: number;
+  bumpChangeSeq: () => void;
   load: () => Promise<void>;
   select: (id: string) => Promise<void>;
   create: () => Promise<string | null>;
@@ -86,6 +89,8 @@ async function bumpTagRefresh() {
 
 export const useNotesStore = create<NotesState>()((set, get) => ({
   notes: [],
+  changeSeq: 0,
+  bumpChangeSeq: () => set((s) => ({ changeSeq: s.changeSeq + 1 })),
   tags: [],
   selectedId: null,
   body: null,

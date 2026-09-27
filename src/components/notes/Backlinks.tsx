@@ -2,25 +2,37 @@ import { useEffect, useState } from "react";
 import { Link2 } from "lucide-react";
 import { api, type NoteMeta } from "../../lib/api/notes";
 import { useNotesStore } from "../../lib/store/notesStore";
+import { useUi } from "../../lib/store/uiStore";
 import { isTauri } from "../../lib/env";
+import { errMsg } from "../../lib/utils";
+import { normTitle } from "../../lib/editor/wikiLinks";
 
-/** "Liên kết ngược" list under the editor; refreshes when the note list changes. */
+/** "Liên kết ngược" list under the editor; refreshes on note/title change and notes://changed. */
 export function Backlinks({ noteId }: { noteId: string }) {
-  const notes = useNotesStore((s) => s.notes);
+  const titleKey = useNotesStore((s) => normTitle(s.notes.find((n) => n.id === noteId)?.title ?? ""));
+  const changeSeq = useNotesStore((s) => s.changeSeq);
+  const pushToast = useUi((s) => s.pushToast);
   const select = useNotesStore((s) => s.select);
   const [items, setItems] = useState<NoteMeta[]>([]);
 
   useEffect(() => {
     if (!isTauri) return;
     let alive = true;
-    api.notes
-      .backlinks(noteId)
-      .then((r) => alive && setItems(r))
-      .catch(() => alive && setItems([]));
+    const t = setTimeout(() => {
+      api.notes
+        .backlinks(noteId)
+        .then((r) => alive && setItems(r))
+        .catch((e) => {
+          if (!alive) return;
+          setItems([]);
+          pushToast({ message: `Không tải được liên kết ngược: ${errMsg(e)}`, durationMs: 5000 });
+        });
+    }, 300);
     return () => {
       alive = false;
+      clearTimeout(t);
     };
-  }, [noteId, notes]);
+  }, [noteId, titleKey, changeSeq, pushToast]);
 
   return (
     <section aria-label="Liên kết ngược" className="mb-16 mt-6 border-t border-hairline pt-4">

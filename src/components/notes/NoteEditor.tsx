@@ -32,8 +32,7 @@ import { FormatBar } from "./FormatBar";
 import { useDeleteNote } from "./useDeleteNote";
 import { HistoryDialog } from "./HistoryDialog";
 import { Backlinks } from "./Backlinks";
-import { api } from "../../lib/api/notes";
-import { normTitle } from "../../lib/editor/wikiLinks";
+import { openWikiLink } from "../../lib/editor/openWikiLink";
 
 /** "✦ Trợ lý" capsule that docks the assistant panel next to the editor. */
 export function AssistantToggle() {
@@ -112,21 +111,6 @@ export function NoteEditor() {
   const note = notes.find((n) => n.id === selectedId) ?? null;
   const [titleDraft, setTitleDraft] = useState(note?.title ?? "");
   const hasEditor = Boolean(note) && body !== null;
-
-  // Ctrl/Cmd+click on [[Target]]: open the note with that title, or create it.
-  const openWikiLink = async (target: string) => {
-    const st = useNotesStore.getState();
-    const hit = st.notes.find((n) => normTitle(n.title) === normTitle(target));
-    if (hit) return st.select(hit.id);
-    try {
-      const created = await api.notes.create(target.trim(), "", []);
-      useNotesStore.setState((s) => ({ notes: [created, ...s.notes] }));
-      await useNotesStore.getState().select(created.id);
-      pushToast({ message: `Đã tạo ghi chú “${created.title}”`, durationMs: 4000 });
-    } catch (e) {
-      pushToast({ message: `Không tạo được ghi chú: ${errMsg(e)}`, durationMs: 6000 });
-    }
-  };
 
   // (Re)create the editor when the selected note changes.
   useEffect(() => {

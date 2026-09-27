@@ -54,6 +54,7 @@ function useNoteEvents() {
     const unlisten = listen<string[]>("notes://changed", (event) => {
       const ids = event.payload ?? [];
       void useNotesStore.getState().load();
+      useNotesStore.getState().bumpChangeSeq();
       if (useUi.getState().section === "media") void useMediaStore.getState().load().catch(() => {});
       // If the open note changed on disk and nothing is unsaved locally,
       // pull in the external edit (MCP / cloud folder) live.

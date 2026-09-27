@@ -1,0 +1,16 @@
+[
+  { "input": "a [[Ghi chú]] b", "targets": ["Ghi chú"] },
+  { "input": "[[ Kế hoạch | plan ]] and [[x|y|z]]", "targets": ["Kế hoạch", "x"] },
+  { "input": "[[]] [[ ]] [[|alias]]", "targets": [] },
+  { "input": "[[a[[b]] [[c]d]]", "targets": ["b"] },
+  { "input": "[[a\nb]] [[c]]", "targets": ["c"] },
+  { "input": "`[[A]]` x ``[[B]] ` `` [[C]]", "targets": ["C"] },
+  { "input": "`open\n[[D]] close`", "targets": ["D"] },
+  { "input": "```\n[[A]]\n```\n[[B]]", "targets": ["B"] },
+  { "input": "   ```js\n[[A]]\n   ```\n[[B]]", "targets": ["B"] },
+  { "input": "    ```\n[[A]]", "targets": ["A"] },
+  { "input": "~~~~\n[[A]]\n~~~\n[[B]]\n~~~~\n[[C]]", "targets": ["C"] },
+  { "input": "```\n[[A]]\n~~~\n[[B]]", "targets": [] },
+  { "input": "x ``` y [[A]]", "targets": ["A"] },
+  { "input": "Tiêu đề [[Việt Nam]]!", "targets": ["Việt Nam"] }
+]

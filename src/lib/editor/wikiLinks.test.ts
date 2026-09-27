@@ -2,6 +2,13 @@ import { describe, it, expect } from "vitest";
 import { parseWikiLinks, wikiCompletionSource } from "./wikiLinks";
 import { EditorState } from "@codemirror/state";
 import { CompletionContext } from "@codemirror/autocomplete";
+import vectors from "../../../src-tauri/crates/notes-core/tests/wiki_vectors.json";
+
+describe("parseWikiLinks shared vectors (also run by Rust)", () => {
+  it.each(vectors as { input: string; targets: string[] }[])("$input", ({ input, targets }) => {
+    expect(parseWikiLinks(input).map((l) => l.target)).toEqual(targets);
+  });
+});
 
 describe("parseWikiLinks", () => {
   it("finds plain and aliased links with offsets", () => {
