@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { FolderOpen, FolderSync, Trash2 } from "lucide-react";
-import { api } from "../../lib/api/notes";
+import { FolderOpen, FolderSync } from "lucide-react";
 import { syncApi } from "../../lib/api/attachments";
 import { useUi } from "../../lib/store/uiStore";
 import { useSettingsStore } from "../../lib/store/settingsStore";
@@ -9,9 +8,9 @@ import { cn } from "../../lib/utils";
 import { useTheme, type Theme } from "../theme/ThemeProvider";
 import { ContentHeader } from "../layout/ContentHeader";
 import { Keycap, SecondaryButton } from "../ui/Button";
-import { ConfirmDialog } from "../ui/Dialog";
 import { ProvidersSection } from "./ProvidersSection";
 import { SkillsSection } from "./SkillsSection";
+import { TrashSection } from "./TrashSection";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -118,7 +117,6 @@ function AppearanceSection() {
 
 function DataSection() {
   const pushToast = useUi((s) => s.pushToast);
-  const [confirmTrash, setConfirmTrash] = useState(false);
   const [syncFolder, setSyncFolder] = useState<string | null>(null);
 
   useEffect(() => {
@@ -186,26 +184,8 @@ function DataSection() {
             </SecondaryButton>
           </span>
         </Row>
-        <Row label="Thùng rác" description="Ghi chú đã xóa được giữ lại để có thể khôi phục.">
-          <SecondaryButton destructive onClick={() => setConfirmTrash(true)} disabled={!isTauri}>
-            <Trash2 size={14} aria-hidden="true" /> Dọn sạch…
-          </SecondaryButton>
-        </Row>
       </RowGroup>
-      <ConfirmDialog
-        open={confirmTrash}
-        title="Dọn sạch thùng rác?"
-        description="Mọi ghi chú trong thùng rác sẽ bị xóa vĩnh viễn và không thể khôi phục."
-        confirmLabel="Xóa vĩnh viễn"
-        onCancel={() => setConfirmTrash(false)}
-        onConfirm={() => {
-          setConfirmTrash(false);
-          void api.notes
-            .emptyTrash()
-            .then((n) => pushToast({ message: `Đã xóa vĩnh viễn ${n} ghi chú`, durationMs: 4000 }))
-            .catch((e) => pushToast({ message: `Không dọn được thùng rác: ${e}`, durationMs: 6000 }));
-        }}
-      />
+      <TrashSection />
     </Section>
   );
 }
@@ -214,7 +194,7 @@ const SHORTCUTS: [string, string[]][] = [
   ["Ghi chú mới", ["Ctrl", "N"]],
   ["Hội thoại mới", ["Ctrl", "Shift", "O"]],
   ["Bảng lệnh", ["Ctrl", "K"]],
-  ["Ghi chú / Trợ lý", ["Ctrl", "1 / 2"]],
+  ["Ghi chú / Trợ lý / Media", ["Ctrl", "1 / 2 / 3"]],
   ["Trợ lý cạnh ghi chú", ["Ctrl", "Shift", "J"]],
   ["Ẩn/hiện thanh bên", ["Ctrl", "\\"]],
   ["Tìm ghi chú", ["Ctrl", "F"]],

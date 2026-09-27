@@ -325,6 +325,58 @@ impl NotesStore {
         n
     }
 
+    /// Notes currently in `.trash/`, newest deletion first. `updated` is the
+    /// trash file mtime (≈ deletion time); corrupt files get a fallback title.
+    pub fn list_trash(&self) -> Vec<NoteMeta> {
+        let mut out: Vec<NoteMeta> = Vec::new();
+        let Ok(entries) = fs::read_dir(&self.trash_dir) else { return out };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            let mtime: DateTime<Utc> = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(DateTime::<Utc>::from)
+                .unwrap_or_else(|_| Utc::now());
+            let mut meta = match self.load_note_from(&path) {
+                Ok(note) => NoteMeta::from(&note),
+                Err(_) => NoteMeta {
+                    id: stem.to_string(),
+                    title: format!("⚠ {}", stem),
+                    tags: vec![],
+                    pinned: false,
+                    created: mtime,
+                    updated: mtime,
+                    snippet: String::new(),
+                    word_count: 0,
+                },
+            };
+            // The file name is authoritative for restore/purge.
+            meta.id = stem.to_string();
+            meta.updated = mtime;
+            out.push(meta);
+        }
+        out.sort_by(|a, b| b.updated.cmp(&a.updated));
+        out
+    }
+
+    /// Permanently delete one trashed note and its version history.
+    pub fn purge_trash_item(&mut self, id: &str) -> Result<()> {
+        if id.is_empty() || id == "." || id.contains("..") || id.contains(['/', '\\', ':']) {
+            return Err(NoteError::Unknown("Mã ghi chú không hợp lệ".into()));
+        }
+        let path = self.trash_dir.join(format!("{}.md", id));
+        if !path.is_file() {
+            return Err(NoteError::NotFound(id.to_string()));
+        }
+        fs::remove_file(&path)?;
+        crate::history::remove_history(&self.dir, id);
+        Ok(())
+    }
+
     /// Names referenced as `(attachments/<name>)` across every `.md` file in
     /// the notes dir and `.trash/`. Raw text is scanned so trashed and
     /// unparseable notes still keep their attachments alive.
@@ -535,6 +587,27 @@ mod tests {
         fs::write(&path, raw).unwrap();
         store.reload();
         assert_eq!(store.list()[0].title, "external title");
+    }
+
+    #[test]
+    fn list_trash_and_purge_item() {
+        let (tmp, mut store) = setup();
+        let a = store.create("A", "x", vec![]).unwrap();
+        let b = store.create("B", "y", vec![]).unwrap();
+        store.delete(&a.id).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        store.delete(&b.id).unwrap();
+        fs::write(tmp.path().join("notes/.trash/broken.md"), "---\nbad: [\n").unwrap();
+        let list = store.list_trash();
+        assert_eq!(list.len(), 3);
+        assert!(list.iter().any(|m| m.id == "broken" && m.title.starts_with('⚠')));
+        let pos = |id: &str| list.iter().position(|m| m.id == id).unwrap();
+        assert!(pos(&b.id) < pos(&a.id));
+        assert!(store.purge_trash_item("../x").is_err());
+        assert!(store.purge_trash_item("nope").is_err());
+        store.purge_trash_item(&a.id).unwrap();
+        assert_eq!(store.list_trash().len(), 2);
+        assert!(store.restore(&a.id).is_err());
     }
 
     #[test]

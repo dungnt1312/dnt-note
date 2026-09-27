@@ -62,6 +62,8 @@ export const api = {
       invoke<NoteMeta[]>("search_notes", { query, limit }),
     backlinks: (id: string) => invoke<NoteMeta[]>("get_backlinks", { id }),
     tags: () => invoke<TagCount[]>("list_tags"),
+    listTrash: () => invoke<NoteMeta[]>("list_trash"),
+    purgeTrashItem: (id: string) => invoke<void>("purge_trash_item", { id }),
     emptyTrash: () => invoke<number>("empty_trash"),
     stats: () => invoke<StatsDto>("get_stats"),
   },

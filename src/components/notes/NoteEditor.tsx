@@ -14,6 +14,7 @@ import {
   Sparkles,
   SquarePen,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
@@ -31,6 +32,7 @@ import { TagStrip } from "./TagStrip";
 import { FormatBar } from "./FormatBar";
 import { useDeleteNote } from "./useDeleteNote";
 import { HistoryDialog } from "./HistoryDialog";
+import { SuggestDialog } from "./SuggestDialog";
 import { Backlinks } from "./Backlinks";
 import { openWikiLink } from "../../lib/editor/openWikiLink";
 
@@ -103,6 +105,7 @@ export function NoteEditor() {
   const editorHost = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<EditorView | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
   const onFilesRef = useRef<(files: File[], pos: number, text?: string) => void>(() => {});
@@ -309,6 +312,9 @@ export function NoteEditor() {
               <MenuItem icon={<History size={14} />} disabled={!isTauri} onSelect={() => setHistoryOpen(true)}>
                 Lịch sử phiên bản…
               </MenuItem>
+              <MenuItem icon={<Wand2 size={14} />} onSelect={() => setSuggestOpen(true)}>
+                Gợi ý tiêu đề & thẻ
+              </MenuItem>
               <MenuSeparator />
               <MenuLabel>
                 Tạo {fullDateTime(note.created)} · {wordStats(body)}
@@ -320,6 +326,15 @@ export function NoteEditor() {
             </Menu>
             <AssistantToggle />
             {historyOpen && <HistoryDialog noteId={note.id} onClose={() => setHistoryOpen(false)} />}
+            {suggestOpen && (
+              <SuggestDialog
+                noteId={note.id}
+                title={note.title}
+                body={body}
+                tags={note.tags}
+                onClose={() => setSuggestOpen(false)}
+              />
+            )}
           </>
         }
       />

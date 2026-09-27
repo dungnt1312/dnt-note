@@ -108,6 +108,18 @@ pub fn list_tags(state: State<AppState>) -> CmdResult<Vec<TagCount>> {
 }
 
 #[tauri::command]
+pub fn list_trash(state: State<AppState>) -> CmdResult<Vec<NoteMeta>> {
+    let store = state.store.lock().map_err(err_of)?;
+    Ok(store.list_trash())
+}
+
+#[tauri::command]
+pub fn purge_trash_item(state: State<AppState>, id: String) -> CmdResult<()> {
+    let mut store = state.store.lock().map_err(err_of)?;
+    store.purge_trash_item(&id).map_err(err_of)
+}
+
+#[tauri::command]
 pub fn empty_trash(state: State<AppState>) -> CmdResult<usize> {
     let store = state.store.lock().map_err(err_of)?;
     Ok(store.empty_trash())

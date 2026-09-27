@@ -296,6 +296,8 @@ pub fn run() {
             commands::notes::get_backlinks,
             commands::notes::list_tags,
             commands::notes::empty_trash,
+            commands::notes::list_trash,
+            commands::notes::purge_trash_item,
             commands::stats::get_stats,
             commands::secrets::secret_set,
             commands::secrets::secret_get,
