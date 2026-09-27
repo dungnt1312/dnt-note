@@ -23,6 +23,7 @@ import {
 import { cn } from "../../lib/utils";
 import { ToolbarDivider } from "../ui/Button";
 import { Menu, MenuItem } from "../ui/Menu";
+import { VoiceRecorder } from "./VoiceRecorder";
 
 function ToolButton({
   label,
@@ -56,10 +57,11 @@ function ToolButton({
 interface FormatBarProps {
   view: EditorView | null;
   stats: string;
+  noteId?: string | null;
 }
 
 /** Formatting toolbar: ¶ H1 H2 H3 | B I S | lists | quote link code ⋯ — stats on the right. */
-export function FormatBar({ view, stats }: FormatBarProps) {
+export function FormatBar({ view, stats, noteId = null }: FormatBarProps) {
   const run = (build: Parameters<typeof applyFormat>[1]) => applyFormat(view, build);
   const text = "text-callout font-semibold";
   return (
@@ -131,6 +133,8 @@ export function FormatBar({ view, stats }: FormatBarProps) {
           Đường kẻ ngang
         </MenuItem>
       </Menu>
+      <ToolbarDivider />
+      <VoiceRecorder view={view} noteId={noteId} />
       <span className="ml-auto truncate pl-3 text-footnote tabular-nums text-fg-tertiary">{stats}</span>
     </div>
   );

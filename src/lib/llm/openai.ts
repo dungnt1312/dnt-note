@@ -241,3 +241,31 @@ export async function embed(options: EmbedOptions): Promise<number[][]> {
   const json = (await res.json()) as { data?: { index: number; embedding: number[] }[] };
   return [...(json.data ?? [])].sort((a, b) => a.index - b.index).map((d) => d.embedding);
 }
+
+export interface TranscribeOptions {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  audio: Blob;
+  fileName: string;
+  language?: string;
+  fetchImpl?: typeof fetch;
+}
+
+/** POST /audio/transcriptions (multipart) → transcript text. */
+export async function transcribe(options: TranscribeOptions): Promise<string> {
+  const doFetch = options.fetchImpl ?? defaultFetch();
+  const form = new FormData();
+  form.append("file", options.audio, options.fileName);
+  form.append("model", options.model);
+  if (options.language) form.append("language", options.language);
+  form.append("response_format", "json");
+  const res = await doFetch(providerUrl(options.baseUrl, "/audio/transcriptions"), {
+    method: "POST",
+    headers: options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {},
+    body: form,
+  });
+  if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  const json = (await res.json()) as { text?: string };
+  return json.text ?? "";
+}

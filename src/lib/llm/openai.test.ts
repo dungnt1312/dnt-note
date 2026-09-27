@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseSseChunk, extractToolCallDelta, embed } from "./openai";
+import { parseSseChunk, extractToolCallDelta, embed, transcribe } from "./openai";
 
 describe("parseSseChunk", () => {
   it("parses complete data events and returns remainder", () => {
@@ -65,5 +65,35 @@ describe("embed", () => {
   it("throws LLM status on error", async () => {
     const f = vi.fn(async () => new Response("bad", { status: 401 }));
     await expect(embed({ baseUrl: "http://h", model: "e", inputs: ["a"], fetchImpl: f as unknown as typeof fetch })).rejects.toThrow("LLM 401: bad");
+  });
+});
+
+describe("transcribe", () => {
+  it("posts multipart form to /audio/transcriptions", async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ text: "xin chào" }), { status: 200 }));
+    const audio = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" });
+    const out = await transcribe({
+      baseUrl: "http://h/v1", apiKey: "k", model: "whisper-1", audio, fileName: "a.webm", language: "vi",
+      fetchImpl: f as unknown as typeof fetch,
+    });
+    expect(out).toBe("xin chào");
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://h/v1/audio/transcriptions");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer k");
+    const fd = init.body as FormData;
+    expect(fd.get("model")).toBe("whisper-1");
+    expect(fd.get("language")).toBe("vi");
+    expect(fd.get("response_format")).toBe("json");
+    const file = fd.get("file") as File;
+    expect(file.name).toBe("a.webm");
+    expect(file.size).toBe(3);
+  });
+  it("omits language when absent and throws on error", async () => {
+    const f = vi.fn(async () => new Response("nope", { status: 400 }));
+    await expect(
+      transcribe({ baseUrl: "http://h", model: "m", audio: new Blob([]), fileName: "x.webm", fetchImpl: f as unknown as typeof fetch }),
+    ).rejects.toThrow("LLM 400: nope");
+    const fd = (f.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
+    expect(fd.has("language")).toBe(false);
   });
 });

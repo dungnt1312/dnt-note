@@ -324,7 +324,7 @@ export function NoteEditor() {
         }
       />
 
-      <FormatBar view={view} stats={wordStats(body)} />
+      <FormatBar view={view} stats={wordStats(body)} noteId={note.id} />
       <div className="h-px shrink-0 bg-hairline" />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
