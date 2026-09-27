@@ -9,9 +9,9 @@ export interface Toast {
 }
 
 /** Main content area: notes workspace, full-screen assistant or settings page. */
-export type Section = "notes" | "chat" | "settings";
+export type Section = "notes" | "chat" | "media" | "settings";
 /** Which list the sidebar shows (notes or chat sessions). */
-export type Workspace = "notes" | "chat";
+export type Workspace = "notes" | "chat" | "media";
 
 interface UiState {
   searchQuery: string;

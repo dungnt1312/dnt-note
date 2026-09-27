@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   FileText,
+  Image,
   MessageSquare,
   MoreHorizontal,
   PanelLeft,
@@ -22,6 +23,7 @@ import { Menu, MenuItem, MenuSeparator } from "../ui/Menu";
 import { ConfirmDialog } from "../ui/Dialog";
 import { SidebarRow, SidebarSectionLabel } from "./SidebarRow";
 import { useDeleteNote } from "../notes/useDeleteNote";
+import { countMedia, useMediaStore, type MediaFilter } from "../../lib/store/mediaStore";
 
 /** Collapse sidebar + contextual "new" button; also shown in content headers when hidden. */
 export function SidebarControls() {
@@ -67,6 +69,7 @@ function WorkspaceSwitcher() {
   const tabs: { id: Workspace; label: string; icon: React.ReactNode; hint: string }[] = [
     { id: "notes", label: "Ghi chú", icon: <FileText size={13} />, hint: "Ctrl+1" },
     { id: "chat", label: "Trợ lý", icon: <MessageSquare size={13} />, hint: "Ctrl+2" },
+    { id: "media", label: "Media", icon: <Image size={13} />, hint: "Ctrl+3" },
   ];
   return (
     <div role="tablist" aria-label="Khu làm việc" className="flex gap-0.5 rounded-[10px] bg-hover p-[3px]">
@@ -94,9 +97,19 @@ function WorkspaceSwitcher() {
   );
 }
 
-function SearchField() {
-  const searchQuery = useUi((s) => s.searchQuery);
-  const setSearchQuery = useUi((s) => s.setSearchQuery);
+function SearchField({
+  value,
+  onChange,
+  id = "note-search",
+  placeholder = "Tìm ghi chú",
+}: {
+  value: string;
+  onChange: (q: string) => void;
+  id?: string;
+  placeholder?: string;
+}) {
+  const searchQuery = value;
+  const setSearchQuery = onChange;
   return (
     <div className="relative">
       <Search
@@ -105,7 +118,7 @@ function SearchField() {
         className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-tertiary"
       />
       <input
-        id="note-search"
+        id={id}
         type="search"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
@@ -115,8 +128,8 @@ function SearchField() {
             setSearchQuery("");
           }
         }}
-        placeholder="Tìm ghi chú"
-        aria-label="Tìm ghi chú"
+        placeholder={placeholder}
+        aria-label={placeholder}
         autoComplete="off"
         spellCheck={false}
         className={cn(
@@ -179,13 +192,14 @@ function NotesPane() {
   const section = useUi((s) => s.section);
   const setSection = useUi((s) => s.setSection);
   const deleteNote = useDeleteNote();
+  const setSearchQuery = useUi((s) => s.setSearchQuery);
 
   const visible = tagFilter ? notes.filter((n) => n.tags.includes(tagFilter)) : notes;
 
   return (
     <>
       <div className="px-3">
-        <SearchField />
+        <SearchField value={searchQuery} onChange={setSearchQuery} />
       </div>
       <TagFilterRow />
       <nav aria-label="Danh sách ghi chú" className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -321,6 +335,52 @@ function SessionsPane() {
   );
 }
 
+const MEDIA_FILTERS: { id: MediaFilter; label: string }[] = [
+  { id: "all", label: "Tất cả" },
+  { id: "image", label: "Ảnh" },
+  { id: "document", label: "Tài liệu" },
+  { id: "audio", label: "Âm thanh" },
+  { id: "unused", label: "Chưa dùng" },
+];
+
+function MediaPane() {
+  const items = useMediaStore((s) => s.items);
+  const filter = useMediaStore((s) => s.filter);
+  const setFilter = useMediaStore((s) => s.setFilter);
+  const query = useMediaStore((s) => s.query);
+  const setQuery = useMediaStore((s) => s.setQuery);
+  const section = useUi((s) => s.section);
+  const setSection = useUi((s) => s.setSection);
+  const counts = countMedia(items);
+  return (
+    <>
+      <div className="px-3">
+        <SearchField value={query} onChange={setQuery} id="media-search" placeholder="Tìm tệp" />
+      </div>
+      <nav aria-label="Lọc tệp" className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2">
+        <ul className="flex flex-col gap-px">
+          {MEDIA_FILTERS.map((f) => (
+            <li key={f.id}>
+              <SidebarRow
+                selected={section === "media" && filter === f.id}
+                onSelect={() => {
+                  setFilter(f.id);
+                  setSection("media");
+                }}
+              >
+                <span className="flex items-center py-0.5">
+                  <span className="flex-1 text-callout text-fg">{f.label}</span>
+                  <span className="text-footnote tabular-nums text-fg-tertiary">{counts[f.id]}</span>
+                </span>
+              </SidebarRow>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </>
+  );
+}
+
 export function Sidebar() {
   const visible = useUi((s) => s.sidebarVisible);
   const workspace = useUi((s) => s.workspace);
@@ -350,7 +410,7 @@ export function Sidebar() {
         <WorkspaceSwitcher />
       </div>
 
-      {workspace === "chat" ? <SessionsPane /> : <NotesPane />}
+      {workspace === "chat" ? <SessionsPane /> : workspace === "media" ? <MediaPane /> : <NotesPane />}
 
       <div className="border-t border-hairline p-2">
         <SidebarRow selected={section === "settings"} onSelect={() => setSection("settings")}>

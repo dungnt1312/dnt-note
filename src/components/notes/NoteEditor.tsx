@@ -1,3 +1,4 @@
+import { ATTACHABLE } from "../../lib/media/extensions";
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
@@ -48,11 +49,6 @@ export function AssistantToggle() {
     </button>
   );
 }
-
-const ATTACHABLE = [
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf", "docx", "rtf", "odt", "txt", "md", "csv", "json",
-  "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
-];
 
 function wordStats(body: string): string {
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;

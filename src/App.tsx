@@ -15,6 +15,8 @@ import { useNotesStore } from "./lib/store/notesStore";
 import { useChatStore } from "./lib/store/chatStore";
 import { useSettingsStore } from "./lib/store/settingsStore";
 import { useUi } from "./lib/store/uiStore";
+import { useMediaStore } from "./lib/store/mediaStore";
+import { MediaLibrary } from "./components/media/MediaLibrary";
 
 function useDeepLinkAndSync() {
   useEffect(() => {
@@ -51,6 +53,7 @@ function useNoteEvents() {
     const unlisten = listen<string[]>("notes://changed", (event) => {
       const ids = event.payload ?? [];
       void useNotesStore.getState().load();
+      if (useUi.getState().section === "media") void useMediaStore.getState().load().catch(() => {});
       // If the open note changed on disk and nothing is unsaved locally,
       // pull in the external edit (MCP / cloud folder) live.
       const { selectedId: sel, saveState: st } = useNotesStore.getState();
@@ -117,6 +120,7 @@ function useShortcuts() {
       if (key === "k" || key === "p") return run(() => ui.setPaletteOpen(!ui.paletteOpen));
       if (key === "1") return run(() => ui.setSection("notes"));
       if (key === "2") return run(() => ui.setSection("chat"));
+      if (key === "3") return run(() => ui.setSection("media"));
       if (key === ",") return run(() => ui.setSettingsOpen(ui.section !== "settings"));
       if (key === "\\") return run(ui.toggleSidebar);
       if (key === "f") return run(() => {
@@ -164,6 +168,7 @@ function Shell() {
         </>
       )}
       {section === "chat" && <ChatPanel variant="full" />}
+      {section === "media" && <MediaLibrary />}
       {section === "settings" && <SettingsPage />}
       <CommandPalette />
       <Toast />
