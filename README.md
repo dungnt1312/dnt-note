@@ -21,7 +21,17 @@
 - **Multi-provider OpenAI-compatible**: OpenAI, Ollama (local), OpenRouter, Groq, vLLM — test kết
   nối trực tiếp trong Settings, lưu **nhiều model mỗi nhà cung cấp** (lấy từ `GET /models` hoặc gõ
   tay), đổi model nhanh ở header chat
-- **@note mentions**: gõ `@` trong composer để đính kèm nội dung note (≤8k ký tự/note)
+- **Composer kiểu ZCode** (rich editor Lexical): `@note` là **token inline ngay trong câu**
+  (≤8k ký tự/note), menu gợi ý bám caret, Esc đóng, Enter/Tab chọn
+- **Đính kèm file vào chat**: nút paperclip, **paste ảnh**, kéo-thả (overlay "Thả file để đính
+  kèm"), paste text dài → tự thành file `.txt`; ảnh downscale ≤2048px gửi dạng **vision parts**,
+  PDF/DOCX/text extract ≤20k ký tự; tổng ngữ cảnh ẩn ≤48k ký tự
+- **Safe send**: draft chỉ xoá khi tin nhắn được chấp nhận (thiếu provider/model → giữ nguyên
+  nội dung); draft lưu theo từng phiên chat (khôi phục khi chuyển lại)
+- **Retry gắn với message**: gửi lại đọc lại nội dung note/file mới nhất từ metadata tin nhắn;
+  mỗi lần chạy có abort controller riêng (Stop không đè lẫn nhau)
+- Lịch sử chat lưu **metadata có cấu trúc** (mentions, attachments, lỗi) → mở lại vẫn hiện đầy
+  đủ chip; file đính kèm chat được bảo vệ khỏi dọn dẹp mồ côi
 
 ### 📎 Attachments + Export
 - Đính kèm ảnh + file (pdf, docx, txt, csv, code...) — tối đa 10 file/note, 25MB/file
@@ -50,8 +60,8 @@ Yêu cầu: **Node 20+**, **Rust 1.77+** (MSVC), WebView2 (Windows 10/11 có s�
 ```bash
 npm install
 npm run tauri dev            # chạy app
-npm test                     # 121 unit tests TS (vitest)
-cd src-tauri && cargo test --workspace   # 43 unit tests Rust
+npm test                     # 168 unit tests TS (vitest)
+cd src-tauri && cargo test --workspace   # 52 unit tests Rust
 npm run tauri build          # installer NSIS
 ```
 
@@ -124,10 +134,10 @@ Tài liệu: [design spec](docs/superpowers/specs/2026-09-26-dnt-note-design.md)
 
 ## Đã kiểm chứng
 
-- ✅ 70 unit tests TS + 43 unit tests Rust đều pass
+- ✅ 168 unit tests TS + 52 unit tests Rust đều pass
 - ✅ `npm run build` (tsc + vite) sạch lỗi; installer NSIS build thành công
 - ✅ App chạy thật: tray + quick capture window + watcher + demo seed
 - ✅ MCP server pipe thật qua stdin/stdout: initialize → tools/list → tools/call đọc đúng 4 notes
 - ✅ Chat panel + provider settings + mentions render đúng (browser check)
-- ⬜ Checklist chạy tay (cần người): chat với LLM thật (cần key), Ctrl+Shift+N toàn hệ thống,
-  deep-link từ trình duyệt, sync OneDrive thật
+- ⬜ Checklist chạy tay (cần người): chat với LLM thật (cần key, kèm ảnh vision), paste ảnh/kéo-thả
+  file vào composer, Ctrl+Shift+N toàn hệ thống, deep-link từ trình duyệt, sync OneDrive thật
