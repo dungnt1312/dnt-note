@@ -20,6 +20,15 @@ export interface NotePatchDto {
   body?: string;
   tags?: string[];
   pinned?: boolean;
+  /** Edit origin; "agent"/"mcp" force a history snapshot. */
+  source?: "agent" | "mcp";
+}
+
+export interface VersionMeta {
+  version: string;
+  created: string;
+  title: string;
+  words: number;
 }
 
 export interface TagCount {
@@ -42,6 +51,10 @@ export const api = {
       invoke<Note>("create_note", { title, body, tags }),
     update: (id: string, patch: NotePatchDto) =>
       invoke<Note>("update_note", { id, patch }),
+    listVersions: (id: string) => invoke<VersionMeta[]>("list_versions", { id }),
+    readVersion: (id: string, version: string) => invoke<Note>("read_version", { id, version }),
+    restoreVersion: (id: string, version: string) =>
+      invoke<Note>("restore_version", { id, version }),
     del: (id: string) => invoke<void>("delete_note", { id }),
     restore: (id: string) => invoke<Note>("restore_note", { id }),
     search: (query: string, limit?: number) =>

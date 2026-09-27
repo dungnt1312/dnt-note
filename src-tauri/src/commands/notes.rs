@@ -1,4 +1,5 @@
 use crate::state::AppState;
+use notes_core::history::{self, VersionMeta};
 use notes_core::note::{Note, NoteMeta, NotePatch};
 use notes_core::store::NotesStore;
 use tauri::State;
@@ -42,6 +43,24 @@ pub fn update_note(
 ) -> CmdResult<Note> {
     let mut store = state.store.lock().map_err(err_of)?;
     store.update(&id, patch).map_err(err_of)
+}
+
+#[tauri::command]
+pub fn list_versions(state: State<AppState>, id: String) -> CmdResult<Vec<VersionMeta>> {
+    let store = state.store.lock().map_err(err_of)?;
+    history::list_versions(store.notes_dir(), &id).map_err(err_of)
+}
+
+#[tauri::command]
+pub fn read_version(state: State<AppState>, id: String, version: String) -> CmdResult<Note> {
+    let store = state.store.lock().map_err(err_of)?;
+    history::read_version(store.notes_dir(), &id, &version).map_err(err_of)
+}
+
+#[tauri::command]
+pub fn restore_version(state: State<AppState>, id: String, version: String) -> CmdResult<Note> {
+    let mut store = state.store.lock().map_err(err_of)?;
+    store.restore_version(&id, &version).map_err(err_of)
 }
 
 #[tauri::command]

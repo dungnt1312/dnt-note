@@ -51,6 +51,9 @@ pub struct NotePatch {
     pub body: Option<String>,
     pub tags: Option<Vec<String>>,
     pub pinned: Option<bool>,
+    /// Edit origin ("agent" / "mcp" force a history snapshot).
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

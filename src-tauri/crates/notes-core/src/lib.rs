@@ -1,5 +1,6 @@
 pub mod attachments;
 pub mod error;
+pub mod history;
 pub mod media;
 pub mod note;
 pub mod note_file;

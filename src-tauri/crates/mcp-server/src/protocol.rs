@@ -176,6 +176,7 @@ fn call_tool(store: &mut NotesStore, name: &str, args: &Value) -> Value {
                     a.iter().filter_map(|t| t.as_str().map(|x| x.to_string())).collect()
                 }),
                 pinned: args.get("pinned").and_then(|v| v.as_bool()),
+                source: Some("mcp".into()),
             };
             match store.update(&id, patch) {
                 Ok(note) => tool_text(json!({ "id": note.id, "title": note.title, "updated": note.updated })),

@@ -137,7 +137,7 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
           await api.notes.create(args.title ?? "Untitled", args.body ?? "", args.tags ?? []),
         );
       case "update_note": {
-        const patch: NotePatchDto = {};
+        const patch: NotePatchDto = { source: "agent" };
         if (args.title !== undefined) patch.title = args.title;
         if (args.body !== undefined) patch.body = args.body;
         if (args.tags !== undefined) patch.tags = args.tags;
@@ -158,7 +158,7 @@ export async function executeTool(name: string, args: ToolArgs): Promise<string>
       case "list_tags":
         return JSON.stringify(await api.notes.tags());
       case "set_tags":
-        return JSON.stringify(await api.notes.update(args.id ?? "", { tags: args.tags ?? [] }));
+        return JSON.stringify(await api.notes.update(args.id ?? "", { tags: args.tags ?? [], source: "agent" }));
       case "list_media": {
         const items = await mediaApi.list();
         return JSON.stringify(

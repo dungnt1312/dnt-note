@@ -6,6 +6,7 @@ import {
   Copy,
   FileDown,
   FileText,
+  History,
   MoreHorizontal,
   Paperclip,
   Pin,
@@ -29,6 +30,7 @@ import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../ui/Menu";
 import { TagStrip } from "./TagStrip";
 import { FormatBar } from "./FormatBar";
 import { useDeleteNote } from "./useDeleteNote";
+import { HistoryDialog } from "./HistoryDialog";
 
 /** "✦ Trợ lý" capsule that docks the assistant panel next to the editor. */
 export function AssistantToggle() {
@@ -98,6 +100,7 @@ export function NoteEditor() {
 
   const editorHost = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<EditorView | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
   const onFilesRef = useRef<(files: File[], pos: number, text?: string) => void>(() => {});
@@ -297,6 +300,9 @@ export function NoteEditor() {
               <MenuItem icon={<FileDown size={14} />} disabled={!isTauri} onSelect={() => void exportPdf()}>
                 Xuất PDF…
               </MenuItem>
+              <MenuItem icon={<History size={14} />} disabled={!isTauri} onSelect={() => setHistoryOpen(true)}>
+                Lịch sử phiên bản…
+              </MenuItem>
               <MenuSeparator />
               <MenuLabel>
                 Tạo {fullDateTime(note.created)} · {wordStats(body)}
@@ -307,6 +313,7 @@ export function NoteEditor() {
               </MenuItem>
             </Menu>
             <AssistantToggle />
+            {historyOpen && <HistoryDialog noteId={note.id} onClose={() => setHistoryOpen(false)} />}
           </>
         }
       />

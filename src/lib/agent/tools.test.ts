@@ -130,7 +130,7 @@ describe("executeTool", () => {
 
   it("update_note maps patch fields", async () => {
     await executeTool("update_note", { id: "n1", title: "new" } as ToolArgs);
-    expect(mocked.update).toHaveBeenCalledWith("n1", { title: "new" });
+    expect(mocked.update).toHaveBeenCalledWith("n1", { title: "new", source: "agent" });
   });
 
   it("delete_note does NOT delete — returns pendingDelete", async () => {
@@ -142,7 +142,7 @@ describe("executeTool", () => {
 
   it("set_tags maps to update", async () => {
     await executeTool("set_tags", { id: "n1", tags: ["a", "b"] } as ToolArgs);
-    expect(mocked.update).toHaveBeenCalledWith("n1", { tags: ["a", "b"] });
+    expect(mocked.update).toHaveBeenCalledWith("n1", { tags: ["a", "b"], source: "agent" });
   });
 
   it("get_recent_notes uses list", async () => {

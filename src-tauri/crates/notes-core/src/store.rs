@@ -1,7 +1,7 @@
 use crate::error::{NoteError, Result};
 use crate::note::{Note, NoteMeta, NotePatch, Stats};
 use crate::note_file;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -120,11 +120,21 @@ impl NotesStore {
     }
 
     pub fn update(&mut self, id: &str, patch: NotePatch) -> Result<Note> {
+        self.update_at(id, patch, Utc::now())
+    }
+
+    pub(crate) fn update_at(&mut self, id: &str, patch: NotePatch, now: DateTime<Utc>) -> Result<Note> {
         let mut note = self.read(id)?;
         // Corrupt files aren't in the index as real notes; forbid blind edits
         // until the user fixes the file, otherwise we'd overwrite their data.
         if !self.index.contains_key(id) {
             return Err(NoteError::NotFound(id.to_string()));
+        }
+        let title_changed = patch.title.as_ref().is_some_and(|t| t.trim() != note.title);
+        let body_changed = patch.body.as_ref().is_some_and(|b| *b != note.body);
+        if title_changed || body_changed {
+            let force = matches!(patch.source.as_deref(), Some("agent") | Some("mcp"));
+            crate::history::snapshot(&self.dir, &note, now, force)?;
         }
         if let Some(t) = patch.title {
             note.title = t.trim().to_string();
@@ -138,7 +148,26 @@ impl NotesStore {
         if let Some(p) = patch.pinned {
             note.pinned = p;
         }
-        note.updated = Utc::now();
+        note.updated = now;
+        self.write_note(&note)?;
+        self.index.insert(note.id.clone(), NoteMeta::from(&note));
+        Ok(note)
+    }
+
+    /// Snapshot the current state (forced), then bring back an old version's
+    /// title/body/tags. id/created/pinned are kept.
+    pub fn restore_version(&mut self, id: &str, version: &str) -> Result<Note> {
+        let old = crate::history::read_version(&self.dir, id, version)?;
+        let mut note = self.read(id)?;
+        if !self.index.contains_key(id) {
+            return Err(NoteError::NotFound(id.to_string()));
+        }
+        let now = Utc::now();
+        crate::history::snapshot(&self.dir, &note, now, true)?;
+        note.title = old.title;
+        note.body = old.body;
+        note.tags = old.tags;
+        note.updated = now;
         self.write_note(&note)?;
         self.index.insert(note.id.clone(), NoteMeta::from(&note));
         Ok(note)
@@ -223,13 +252,20 @@ impl NotesStore {
         }
     }
 
-    /// Permanently delete everything in `.trash/`. Returns file count.
+    /// Permanently delete everything in `.trash/` (and the purged notes'
+    /// version history). Returns file count.
     pub fn empty_trash(&self) -> usize {
         let mut n = 0;
         if let Ok(entries) = fs::read_dir(&self.trash_dir) {
             for entry in entries.flatten() {
-                if entry.path().is_file() && fs::remove_file(entry.path()).is_ok() {
+                let path = entry.path();
+                if path.is_file() && fs::remove_file(&path).is_ok() {
                     n += 1;
+                    if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            crate::history::remove_history(&self.dir, stem);
+                        }
+                    }
                 }
             }
         }
@@ -469,5 +505,80 @@ mod tests {
         assert_eq!(slice2, "nop");
         let (slice3, _) = store.read_body_range(&note.id, 0, 0).unwrap();
         assert_eq!(slice3.chars().count(), 1); // max 0 clamps to 1
+    }
+
+    fn later(n: &Note, min: i64) -> DateTime<Utc> {
+        n.updated + chrono::Duration::minutes(min)
+    }
+
+    fn body(b: &str) -> NotePatch {
+        NotePatch { body: Some(b.into()), ..Default::default() }
+    }
+
+    #[test]
+    fn update_snapshots_with_throttle_and_force() {
+        let (_tmp, mut store) = setup();
+        let n = store.create("t", "v0", vec![]).unwrap();
+        store.update_at(&n.id, body("v1"), later(&n, 1)).unwrap();
+        store.update_at(&n.id, body("v2"), later(&n, 2)).unwrap(); // throttled
+        store
+            .update_at(&n.id, NotePatch { source: Some("agent".into()), ..body("v3") }, later(&n, 3))
+            .unwrap();
+        store.update_at(&n.id, body("v4"), later(&n, 9)).unwrap();
+        let bodies: Vec<String> = crate::history::list_versions(store.notes_dir(), &n.id)
+            .unwrap()
+            .iter()
+            .map(|v| crate::history::read_version(store.notes_dir(), &n.id, &v.version).unwrap().body)
+            .collect();
+        assert_eq!(bodies, vec!["v3", "v2", "v0"]);
+    }
+
+    #[test]
+    fn no_snapshot_when_content_unchanged() {
+        let (_tmp, mut store) = setup();
+        let n = store.create("t", "b", vec![]).unwrap();
+        store
+            .update(&n.id, NotePatch { title: Some(" t ".into()), body: Some("b".into()), pinned: Some(true), tags: Some(vec!["x".into()]), source: Some("mcp".into()) })
+            .unwrap();
+        assert!(crate::history::list_versions(store.notes_dir(), &n.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn restore_version_round_trip() {
+        let (_tmp, mut store) = setup();
+        let n = store.create("old", "old body", vec!["a".into()]).unwrap();
+        store
+            .update(&n.id, NotePatch { title: Some("new".into()), body: Some("new body".into()), tags: Some(vec![]), pinned: Some(true), ..Default::default() })
+            .unwrap();
+        let v = crate::history::list_versions(store.notes_dir(), &n.id).unwrap()[0].version.clone();
+        let r = store.restore_version(&n.id, &v).unwrap();
+        assert_eq!((r.title.as_str(), r.body.as_str()), ("old", "old body"));
+        assert_eq!(r.tags, vec!["a".to_string()]);
+        assert!(r.pinned);
+        assert_eq!(r.created, n.created);
+        let list = crate::history::list_versions(store.notes_dir(), &n.id).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].title, "new");
+        assert!(store.restore_version(&n.id, "bad").is_err());
+    }
+
+    #[test]
+    fn empty_trash_removes_history_of_purged_notes() {
+        let (_tmp, mut store) = setup();
+        let a = store.create("a", "1", vec![]).unwrap();
+        let b = store.create("b", "1", vec![]).unwrap();
+        store.update(&a.id, body("2")).unwrap();
+        store.update(&b.id, body("2")).unwrap();
+        store.delete(&a.id).unwrap();
+        let root = crate::history::history_root(store.notes_dir());
+        assert!(root.join(&a.id).exists());
+        store.restore(&a.id).unwrap();
+        assert!(root.join(&a.id).exists());
+        store.delete(&a.id).unwrap();
+        store.empty_trash();
+        assert!(!root.join(&a.id).exists());
+        assert!(root.join(&b.id).exists());
+        store.reload();
+        assert_eq!(store.list().len(), 1);
     }
 }
