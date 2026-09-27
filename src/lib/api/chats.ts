@@ -1,8 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export interface ChatMentionDto {
+  id: string;
+  title: string;
+  failed?: boolean;
+}
+
+export interface ChatAttachmentDto {
+  id: string;
+  /** Stored (uuid-prefixed) name inside the attachments dir. */
+  name: string;
+  originalName: string;
+  size: number;
+  kind: "image" | "document";
+}
+
 export interface ChatMessageDto {
   role: string;
   content: string | null;
+  mentions?: ChatMentionDto[];
+  attachments?: ChatAttachmentDto[];
+  error?: string;
   toolCalls?: unknown;
   toolCallId?: string;
   name?: string;

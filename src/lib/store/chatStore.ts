@@ -3,7 +3,10 @@ import { runAgent, buildSystemPrompt, type AgentEvent } from "../agent/engine";
 import { useSettingsStore } from "./settingsStore";
 import { useNotesStore } from "./notesStore";
 import { useUi } from "./uiStore";
-import { api, type ChatMetaDto, type ChatSessionDto } from "../api/chats";
+import { api, type ChatAttachmentDto, type ChatMentionDto, type ChatSessionDto, type ChatMetaDto } from "../api/chats";
+import { api as notesApi } from "../api/notes";
+import { attachmentsApi } from "../api/attachments";
+import { buildRequestUserMessage, MAX_DOC_CHARS, type AttachmentInput, type MentionInput } from "../chat/payload";
 
 export interface UiToolCall {
   id: string;
@@ -16,6 +19,8 @@ export interface UiToolCall {
 export interface UiMention {
   id: string;
   title: string;
+  /** The note body could not be read when this message was sent. */
+  failed?: boolean;
 }
 
 export interface UiMessage {
@@ -23,12 +28,20 @@ export interface UiMessage {
   role: "user" | "assistant";
   content: string;
   mentions?: UiMention[];
+  attachments?: AttachmentInput[];
   toolCalls?: UiToolCall[];
   pendingDelete?: { id: string; title: string; status: "pending" | "confirmed" | "cancelled" };
   error?: string;
 }
 
-export type MentionInput = { id: string; title: string; body: string };
+export type { MentionInput, AttachmentInput } from "../chat/payload";
+
+export interface SendPayload {
+  text: string;
+  mentions: MentionInput[];
+  attachments: AttachmentInput[];
+}
+export type SendResult = { ok: true } | { ok: false; error: string };
 
 interface ChatState {
   chatId: string;
@@ -37,7 +50,8 @@ interface ChatState {
   status: "idle" | "streaming";
   error: string | null;
   sessions: ChatMetaDto[];
-  send: (text: string, mentions: MentionInput[]) => Promise<void>;
+  /** Validate, then stream. Returns `{ok:false}` without touching state on rejection. */
+  send: (payload: SendPayload) => Promise<SendResult>;
   /** Drop the last exchange and send the same user message again. */
   retryLast: () => Promise<void>;
   confirmDelete: (noteId: string) => Promise<void>;
@@ -55,10 +69,10 @@ export function newId(): string {
 }
 
 export const NEW_CHAT_TITLE = "Phiên chat mới";
-const MAX_CONTEXT_CHARS = 8000;
-let controller: AbortController | null = null;
-/** Mention bodies of the last send, so "retry" can rebuild the same context. */
-let lastMentions: MentionInput[] = [];
+
+/** One AbortController per run; only the active run may flip status/persist. */
+const controllers = new Map<string, AbortController>();
+let activeRunId: string | null = null;
 
 function sessionTitle(messages: UiMessage[], chatTitle: string): string {
   if (chatTitle !== NEW_CHAT_TITLE) return chatTitle;
@@ -73,7 +87,20 @@ async function persistChat(messages: UiMessage[], chatId: string, title: string)
     title,
     messages: messages.map((m) => ({
       role: m.role,
-      content: m.content + (m.error ? `\n\n⚠ ${m.error}` : ""),
+      content: m.content,
+      ...(m.mentions?.length ? { mentions: m.mentions as ChatMentionDto[] } : {}),
+      ...(m.attachments?.length
+        ? {
+            attachments: m.attachments.map(({ id, name, originalName, size, kind }) => ({
+              id,
+              name,
+              originalName,
+              size,
+              kind,
+            })) as ChatAttachmentDto[],
+          }
+        : {}),
+      ...(m.error ? { error: m.error } : {}),
     })),
     updated: new Date().toISOString(),
   };
@@ -94,30 +121,43 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   error: null,
   sessions: [],
 
-  send: async (text, mentions) => {
-    if (get().status === "streaming" || !text.trim()) return;
+  send: async (payload) => {
+    if (get().status === "streaming") {
+      return { ok: false, error: "Trợ lý đang trả lời — vui lòng dừng trước khi gửi tiếp." };
+    }
+    if (!payload.text.trim() && payload.attachments.length === 0) {
+      return { ok: false, error: "Nhập nội dung hoặc đính kèm file trước khi gửi." };
+    }
     const provider = useSettingsStore.getState().activeProvider();
     if (!provider) {
-      set({ error: "Chưa cấu hình provider AI — mở Cài đặt → Nhà cung cấp AI." });
-      return;
+      const error = "Chưa cấu hình provider AI — mở Cài đặt → Nhà cung cấp AI.";
+      set({ error });
+      return { ok: false, error };
     }
     if (!provider.model) {
-      set({ error: `“${provider.name}” chưa có model nào — mở Cài đặt → Nhà cung cấp AI để thêm model.` });
-      return;
-    }
-    lastMentions = mentions;
-
-    let userContent = text;
-    for (const m of mentions) {
-      const body = m.body.length > MAX_CONTEXT_CHARS ? `${m.body.slice(0, MAX_CONTEXT_CHARS)}…` : m.body;
-      userContent += `\n\n[@${m.title}]\n---\n${body}`;
+      const error = `“${provider.name}” chưa có model nào — mở Cài đặt → Nhà cung cấp AI để thêm model.`;
+      set({ error });
+      return { ok: false, error };
     }
 
+    // Prior turns are sent as plain text; images/docs only ride the current turn.
+    const history = get()
+      .messages.filter((m) => !m.error)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    const requestUser = buildRequestUserMessage(payload.text, payload.mentions, payload.attachments);
     const userMsg: UiMessage = {
       id: newId(),
       role: "user",
-      content: text,
-      mentions: mentions.length ? mentions.map(({ id, title }) => ({ id, title })) : undefined,
+      content: payload.text,
+      ...(payload.mentions.length
+        ? {
+            mentions: payload.mentions.map(({ id, title, failed }) =>
+              failed ? { id, title, failed } : { id, title },
+            ),
+          }
+        : {}),
+      ...(payload.attachments.length ? { attachments: payload.attachments } : {}),
     };
     const assistantId = newId();
     const assistantMsg: UiMessage = { id: assistantId, role: "assistant", content: "" };
@@ -128,7 +168,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       error: null,
     }));
 
-    controller = new AbortController();
+    const runId = newId();
+    activeRunId = runId;
+    const controller = new AbortController();
+    controllers.set(runId, controller);
 
     const updateAssistant = (fn: (m: UiMessage) => UiMessage) => {
       set((s) => ({
@@ -181,14 +224,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const selectedId = notesState.selectedId;
       const selectedTitle = notesState.notes.find((n) => n.id === selectedId)?.title ?? null;
 
-      const history: Parameters<typeof runAgent>[0]["messages"] = get()
-        .messages.slice(0, -2)
-        .filter((m) => !m.error)
-        .map((m) => ({ role: m.role, content: m.content }) as Parameters<typeof runAgent>[0]["messages"][number]);
-
       await runAgent({
         provider,
-        messages: [...history, { role: "user", content: userContent }],
+        messages: [...history, requestUser],
         systemPrompt: buildSystemPrompt(stats, selectedId, selectedTitle),
         signal: controller.signal,
         onEvent: handleEvent,
@@ -200,18 +238,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         updateAssistant((m) => ({ ...m, error: message }));
       }
     } finally {
-      controller = null;
-      set({ status: "idle" });
-      const s = get();
-      const title = sessionTitle(s.messages, s.chatTitle);
-      const meta = await persistChat(s.messages, s.chatId, title);
-      if (meta && get().chatId === meta.id) {
-        set((cur) => ({
-          chatTitle: title,
-          sessions: [meta, ...cur.sessions.filter((x) => x.id !== meta.id)],
-        }));
+      controllers.delete(runId);
+      if (activeRunId === runId) {
+        activeRunId = null;
+        set({ status: "idle" });
+        const s = get();
+        const title = sessionTitle(s.messages, s.chatTitle);
+        const meta = await persistChat(s.messages, s.chatId, title);
+        if (meta && get().chatId === meta.id) {
+          set((cur) => ({
+            chatTitle: title,
+            sessions: [meta, ...cur.sessions.filter((x) => x.id !== meta.id)],
+          }));
+        }
       }
     }
+    return { ok: true };
   },
 
   retryLast: async () => {
@@ -219,9 +261,33 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     if (status === "streaming") return;
     const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
     if (lastUserIdx < 0) return;
-    const text = messages[lastUserIdx].content;
+    const msg = messages[lastUserIdx]!;
+
+    // Re-resolve context from the message itself — note bodies may have changed.
+    const mentions: MentionInput[] = await Promise.all(
+      (msg.mentions ?? []).map(async (m) => {
+        try {
+          const note = await notesApi.notes.read(m.id);
+          return { id: m.id, title: m.title, body: note.body, ...(m.failed ? { failed: true } : {}) };
+        } catch {
+          return { id: m.id, title: m.title, body: "", failed: true };
+        }
+      }),
+    );
+    const attachments: AttachmentInput[] = await Promise.all(
+      (msg.attachments ?? []).map(async (a) => {
+        try {
+          if (a.kind === "image") return { ...a, previewUrl: await attachmentsApi.prepareImage(a.name) };
+          return { ...a, text: (await attachmentsApi.extractText(a.name)).slice(0, MAX_DOC_CHARS) };
+        } catch {
+          return { ...a };
+        }
+      }),
+    );
+
     set({ messages: messages.slice(0, lastUserIdx) });
-    await get().send(text, lastMentions);
+    const res = await get().send({ text: msg.content, mentions, attachments });
+    if (!res.ok) set({ messages }); // validation failed — restore the exchange
   },
 
   confirmDelete: async (noteId) => {
@@ -251,7 +317,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         chatTitle: session.title,
         messages: session.messages
           .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({ id: newId(), role: m.role as "user" | "assistant", content: m.content ?? "" })),
+          .map((m) => ({
+            id: newId(),
+            role: m.role as "user" | "assistant",
+            content: m.content ?? "",
+            ...(m.mentions?.length ? { mentions: m.mentions } : {}),
+            ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+            ...(m.error ? { error: m.error } : {}),
+          })),
         status: "idle",
         error: null,
       });
@@ -295,9 +368,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   },
 
   stop: () => {
-    controller?.abort();
-    controller = null;
-    set({ status: "idle" });
+    if (activeRunId) controllers.get(activeRunId)?.abort();
   },
 }));
 
