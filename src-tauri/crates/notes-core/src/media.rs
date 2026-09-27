@@ -1,11 +1,11 @@
-use crate::attachments::{is_allowed, refs_in_body};
+use crate::attachments::{is_allowed, is_safe_name, refs_in_body};
 use crate::error::{NoteError, Result};
 use crate::note::NotePatch;
-use crate::store::NotesStore;
+use crate::store::{write_atomic, NotesStore};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -72,7 +72,7 @@ fn ext_of(name: &str) -> String {
 }
 
 fn validate_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+    if !is_safe_name(name) {
         return Err(NoteError::Unknown("Tên file không hợp lệ".into()));
     }
     Ok(())
@@ -127,9 +127,41 @@ pub fn list_media(dir: &Path, store: &NotesStore) -> Result<Vec<MediaItem>> {
     Ok(items)
 }
 
+/// Raw text of an `.md` file under the notes dir or `.trash/`.
+/// `live` is the note id when the file is a parseable, non-trashed note.
+struct RawNote {
+    path: PathBuf,
+    raw: String,
+    live: Option<String>,
+}
+
+fn raw_notes(store: &NotesStore) -> Vec<RawNote> {
+    let mut out = Vec::new();
+    for (dir, trash) in [(store.notes_dir(), false), (store.trash_dir(), true)] {
+        let Ok(entries) = fs::read_dir(dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let Ok(raw) = fs::read_to_string(&path) else { continue };
+            let live = if trash {
+                None
+            } else {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                store.read(stem).ok().map(|n| n.id)
+            };
+            out.push(RawNote { path, raw, live });
+        }
+    }
+    out
+}
+
 /// Rename the display part of a stored file (uuid prefix kept) and rewrite
-/// every `(attachments/<old>)` link in live notes. The original extension is
+/// every `(attachments/<old>)` link in all notes, including trashed and
+/// corrupt files (raw text, `updated` untouched). The original extension is
 /// enforced: it is appended when `new_display` does not end with it.
+/// All-or-nothing: on any write failure the file and notes are restored.
 pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display: &str) -> Result<String> {
     validate_name(name)?;
     let new_display = new_display.trim();
@@ -143,6 +175,7 @@ pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display:
     if !ext.is_empty() && ext_of(&display) != ext {
         display = format!("{display}.{ext}");
     }
+    validate_name(&display)?;
     let new_name = match uuid_prefix(name) {
         Some(prefix) => format!("{prefix}-{display}"),
         None => format!("{}-{display}", uuid::Uuid::new_v4()),
@@ -157,14 +190,36 @@ pub fn rename_media(dir: &Path, store: &mut NotesStore, name: &str, new_display:
     if dst.exists() {
         return Err(NoteError::Unknown(format!("File đã tồn tại: {display}")));
     }
-    fs::rename(&src, &dst)?;
 
     let old_link = format!("(attachments/{name})");
     let new_link = format!("(attachments/{new_name})");
-    for (id, _, body) in live_bodies(store) {
-        if body.contains(&old_link) {
-            let body = body.replace(&old_link, &new_link);
-            store.update(&id, NotePatch { body: Some(body), ..Default::default() })?;
+    // Compute every new body up front so nothing is written if one fails to read.
+    let mut plan: Vec<(RawNote, String)> = Vec::new();
+    for n in raw_notes(store).into_iter().filter(|n| n.raw.contains(&old_link)) {
+        let text = match &n.live {
+            Some(id) => store.read(id)?.body.replace(&old_link, &new_link),
+            None => n.raw.replace(&old_link, &new_link),
+        };
+        plan.push((n, text));
+    }
+
+    fs::rename(&src, &dst)?;
+    for (i, (n, text)) in plan.iter().enumerate() {
+        let res = match &n.live {
+            Some(id) => store
+                .update(id, NotePatch { body: Some(text.clone()), ..Default::default() })
+                .map(|_| ()),
+            None => write_atomic(&n.path, text.as_bytes()),
+        };
+        if let Err(e) = res {
+            for (done, _) in &plan[..=i] {
+                let _ = write_atomic(&done.path, done.raw.as_bytes());
+                if let Some(id) = &done.live {
+                    store.refresh(id);
+                }
+            }
+            let _ = fs::rename(&dst, &src);
+            return Err(e);
         }
     }
     Ok(new_name)
@@ -208,34 +263,38 @@ fn strip_links(body: &str, name: &str) -> String {
     out
 }
 
-/// Delete a stored file. Fails when a live note still references it unless
-/// `force`, in which case the links are stripped from those notes first.
+/// Delete a stored file. Refuses when any note (trashed and corrupt files
+/// included) references it, unless `force`: then the file is removed first
+/// and links are stripped from live notes. Force still refuses when a
+/// trashed/corrupt file references it, since those can't be edited safely.
 pub fn delete_media(dir: &Path, store: &mut NotesStore, name: &str, force: bool) -> Result<()> {
     validate_name(name)?;
     let path = dir.join(name);
     if !path.is_file() {
         return Err(NoteError::NotFound(name.to_string()));
     }
-    let users: Vec<(String, String)> = live_bodies(store)
+    let users: Vec<RawNote> = raw_notes(store)
         .into_iter()
-        .filter(|(_, _, body)| refs_in_body(body).iter().any(|r| r == name))
-        .map(|(id, _, body)| (id, body))
+        .filter(|n| refs_in_body(&n.raw).iter().any(|r| r == name))
         .collect();
     if !users.is_empty() && !force {
         return Err(NoteError::Unknown(format!("File đang được dùng trong {} ghi chú", users.len())));
     }
-    for (id, body) in users {
-        let body = strip_links(&body, name);
-        store.update(&id, NotePatch { body: Some(body), ..Default::default() })?;
+    if users.iter().any(|n| n.live.is_none()) {
+        return Err(NoteError::Unknown("Tệp đang được dùng bởi ghi chú trong thùng rác".into()));
     }
     fs::remove_file(&path)?;
+    for n in users {
+        let Some(id) = n.live else { continue };
+        let body = strip_links(&store.read(&id)?.body, name);
+        store.update(&id, NotePatch { body: Some(body), ..Default::default() })?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     const U: &str = "123e4567-e89b-12d3-a456-426614174000";
@@ -330,5 +389,56 @@ mod tests {
         fs::write(dir.join("free.pdf"), "x").unwrap();
         delete_media(&dir, &mut store, "free.pdf", false).unwrap();
         assert!(delete_media(&dir, &mut store, "../x", true).is_err());
+    }
+
+    #[test]
+    fn delete_media_refuses_trashed_or_corrupt_refs() {
+        let (_t, dir, mut store) = setup();
+        let f = format!("{U}-t.png");
+        fs::write(dir.join(&f), "x").unwrap();
+        let n = store.create("T", &format!("![a](attachments/{f})"), vec![]).unwrap();
+        store.delete(&n.id).unwrap();
+        assert!(delete_media(&dir, &mut store, &f, false).is_err());
+        let e = delete_media(&dir, &mut store, &f, true).unwrap_err().to_string();
+        assert!(e.contains("thùng rác"));
+        assert!(dir.join(&f).exists());
+
+        let g = format!("{U}-c.png");
+        fs::write(dir.join(&g), "x").unwrap();
+        fs::write(store.notes_dir().join("broken.md"), format!("---\nnot: [valid\n---\n![b](attachments/{g})")).unwrap();
+        store.reload();
+        assert!(delete_media(&dir, &mut store, &g, false).is_err());
+        assert!(delete_media(&dir, &mut store, &g, true).is_err());
+        assert!(dir.join(&g).exists());
+    }
+
+    #[test]
+    fn rename_media_rewrites_trashed_and_corrupt_files() {
+        let (_t, dir, mut store) = setup();
+        let old = format!("{U}-o.png");
+        fs::write(dir.join(&old), "x").unwrap();
+        let n = store.create("T", &format!("![a](attachments/{old})"), vec![]).unwrap();
+        store.delete(&n.id).unwrap();
+        let trashed = store.trash_dir().join(format!("{}.md", n.id));
+        let before = fs::read_to_string(&trashed).unwrap();
+        let corrupt = store.notes_dir().join("broken.md");
+        fs::write(&corrupt, format!("---\nnot: [valid\n---\n[b](attachments/{old})")).unwrap();
+        store.reload();
+
+        let new = rename_media(&dir, &mut store, &old, "n").unwrap();
+        // Exact raw replace: `updated` in the trashed frontmatter is untouched.
+        assert_eq!(fs::read_to_string(&trashed).unwrap(), before.replace(&old, &new));
+        assert!(fs::read_to_string(&corrupt).unwrap().contains(&format!("(attachments/{new})")));
+    }
+
+    #[test]
+    fn rename_media_rejects_unsafe_names() {
+        let (_t, dir, mut store) = setup();
+        let f = format!("{U}-a.png");
+        fs::write(dir.join(&f), "x").unwrap();
+        for bad in ["a:b", "con", "LPT1.png", "x\u{1}y"] {
+            assert!(rename_media(&dir, &mut store, &f, bad).is_err(), "{bad:?}");
+        }
+        assert!(dir.join(&f).exists());
     }
 }

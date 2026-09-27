@@ -60,8 +60,26 @@ pub fn refs_in_body(body: &str) -> Vec<String> {
     out
 }
 
+/// A bare file name that is safe on every platform: no separators, no ':'
+/// (NTFS streams / drive letters), no control chars, and not a Windows
+/// reserved device name (with or without extension).
+pub fn is_safe_name(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    if name.chars().any(|c| c == '/' || c == '\\' || c == ':' || (c as u32) < 0x20) {
+        return false;
+    }
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    !reserved
+}
+
 fn validate_upload(file_name: &str, size: u64) -> Result<()> {
-    if file_name.is_empty() || file_name.contains('/') || file_name.contains('\\') {
+    if !is_safe_name(file_name) {
         return Err(NoteError::Unknown("Tên file không hợp lệ".into()));
     }
     let path = Path::new(file_name);
@@ -86,8 +104,12 @@ pub fn save_file(attachments_dir: &Path, src: &Path) -> Result<String> {
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| NoteError::Unknown("Tên file không hợp lệ".into()))?;
+    // Name/extension checked before stat-ing so bad types fail fast.
     validate_upload(file_name, 0)?;
-    validate_upload(file_name, fs::metadata(src)?.len())?;
+    let size = fs::metadata(src)?.len();
+    if size > MAX_FILE_BYTES {
+        validate_upload(file_name, size)?;
+    }
     let stored = format!("{}-{}", uuid::Uuid::new_v4(), file_name);
     fs::create_dir_all(attachments_dir)?;
     fs::copy(src, attachments_dir.join(&stored))?;
@@ -290,7 +312,19 @@ mod tests {
         assert_eq!(fs::read(dir.join(&stored)).unwrap(), b"abc");
         assert!(save_bytes(&dir, "x.exe", b"MZ").is_err());
         assert!(save_bytes(&dir, "../a.png", b"a").is_err());
+        assert!(save_bytes(&dir, "a:b.png", b"a").is_err());
+        assert!(save_bytes(&dir, "con.png", b"a").is_err());
         assert!(save_bytes(&dir, "big.png", &vec![0u8; (MAX_FILE_BYTES + 1) as usize]).is_err());
+    }
+
+    #[test]
+    fn is_safe_name_rules() {
+        for bad in ["", "..", "a/b.png", "a\\b.png", "c:x.png", "x\u{7}.png", "CON", "nul.txt", "Lpt9.md", "aux .png", "COM1"] {
+            assert!(!is_safe_name(bad), "{bad:?}");
+        }
+        for ok in ["console.png", "COM0.png", "COM10.png", "lpt.txt", "ảnh (1).png"] {
+            assert!(is_safe_name(ok), "{ok:?}");
+        }
     }
 
     #[test]

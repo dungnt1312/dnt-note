@@ -31,6 +31,17 @@ impl NotesStore {
         &self.dir
     }
 
+    pub fn trash_dir(&self) -> &Path {
+        &self.trash_dir
+    }
+
+    /// Re-index one note from disk after an external raw write.
+    pub fn refresh(&mut self, id: &str) {
+        if let Ok(note) = self.read(id) {
+            self.index.insert(note.id.clone(), NoteMeta::from(&note));
+        }
+    }
+
     /// Re-scan the notes directory. Corrupt files stay visible with a
     /// fallback title instead of disappearing.
     pub fn reload(&mut self) {
