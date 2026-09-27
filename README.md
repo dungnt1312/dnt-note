@@ -19,7 +19,8 @@
 - **10 tools** agent tự gọi: list/search/read/create/update/delete notes, stats, tags, set_tags,
   recent — xóa luôn có **thẻ xác nhận** + hoàn tác, không xóa ngầm
 - **Multi-provider OpenAI-compatible**: OpenAI, Ollama (local), OpenRouter, Groq, vLLM — test kết
-  nối trực tiếp trong Settings, chọn model ở header chat
+  nối trực tiếp trong Settings, lưu **nhiều model mỗi nhà cung cấp** (lấy từ `GET /models` hoặc gõ
+  tay), đổi model nhanh ở header chat
 - **@note mentions**: gõ `@` trong composer để đính kèm nội dung note (≤8k ký tự/note)
 
 ### 📎 Attachments + Export
@@ -49,7 +50,7 @@ Yêu cầu: **Node 20+**, **Rust 1.77+** (MSVC), WebView2 (Windows 10/11 có s�
 ```bash
 npm install
 npm run tauri dev            # chạy app
-npm test                     # 70 unit tests TS (vitest)
+npm test                     # 121 unit tests TS (vitest)
 cd src-tauri && cargo test --workspace   # 43 unit tests Rust
 npm run tauri build          # installer NSIS
 ```
@@ -58,7 +59,9 @@ npm run tauri build          # installer NSIS
 
 1. Mở **Cài đặt → AI Providers** (app seed sẵn preset Ollama local)
 2. Chọn preset (OpenAI/Ollama/OpenRouter/Groq/vLLM), điền API key nếu cần, bấm **Kiểm tra kết nối**
-3. Chọn provider/model ở dropdown trong chat panel — xong
+3. Bấm **Chọn model…** → tick các model muốn dùng (tìm kiếm được, hoặc gõ tên để thêm model không có
+   trong danh sách) → **Lưu**
+4. Đổi model ở dropdown trong chat panel (model được nhóm theo nhà cung cấp) — xong
 
 ## Dùng MCP server với AI client
 

@@ -101,6 +101,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       set({ error: "Chưa cấu hình provider AI — mở Cài đặt → Nhà cung cấp AI." });
       return;
     }
+    if (!provider.model) {
+      set({ error: `“${provider.name}” chưa có model nào — mở Cài đặt → Nhà cung cấp AI để thêm model.` });
+      return;
+    }
     lastMentions = mentions;
 
     let userContent = text;

@@ -7,6 +7,7 @@ import { cn } from "../../lib/utils";
 import { SecondaryButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
 import { Menu, MenuItem } from "../ui/Menu";
+import { ModelPickerDialog } from "./ModelPickerDialog";
 
 async function tauriFetch(): Promise<typeof fetch | null> {
   if (!isTauri) return null;
@@ -17,6 +18,11 @@ async function tauriFetch(): Promise<typeof fetch | null> {
 export async function ensureLlmFetch(): Promise<void> {
   const f = await tauriFetch();
   if (f) initLlmFetch(f);
+}
+
+async function fetchModels(provider: LlmProvider): Promise<string[]> {
+  const f = await tauriFetch();
+  return listModels(provider.baseUrl, provider.apiKey || undefined, f ?? undefined);
 }
 
 function Field({
@@ -49,20 +55,93 @@ type TestState =
   | { kind: "ok"; count: number }
   | { kind: "fail"; message: string };
 
+/** Saved models as chips: click one to chat with it, × to drop it, last chip opens the picker. */
+function ModelChips({
+  provider,
+  active,
+  labelledBy,
+  onPick,
+}: {
+  provider: LlmProvider;
+  /** The provider the chat uses — its current model chip is filled. */
+  active: boolean;
+  labelledBy: string;
+  onPick: () => void;
+}) {
+  const selectModel = useSettingsStore((s) => s.selectModel);
+  const setModels = useSettingsStore((s) => s.setModels);
+
+  return (
+    <div role="group" aria-labelledby={labelledBy} className="flex flex-wrap items-center gap-1.5">
+      {provider.models.map((m) => {
+        const current = m === provider.model;
+        const inUse = current && active;
+        return (
+          <span
+            key={m}
+            className={cn(
+              "inline-flex h-7 max-w-full items-center rounded-full border text-footnote font-medium transition-colors",
+              inUse
+                ? "border-accent bg-accent text-accent-fg"
+                : current
+                  ? "border-fg-tertiary bg-app text-fg hover:bg-hover"
+                  : "border-hairline bg-app text-fg hover:bg-hover",
+            )}
+          >
+            <button
+              type="button"
+              aria-pressed={current}
+              title={inUse ? `${m} — đang dùng` : `Dùng ${m}`}
+              onClick={() => void selectModel(provider.id, m)}
+              className="inline-flex h-full min-w-0 items-center gap-1 rounded-l-full pl-2.5 pr-1"
+            >
+              {current && <Check size={12} strokeWidth={2.5} aria-hidden="true" className="shrink-0" />}
+              <span className="truncate">{m}</span>
+            </button>
+            <button
+              type="button"
+              aria-label={`Bỏ model ${m}`}
+              title="Bỏ model"
+              onClick={() => void setModels(provider.id, provider.models.filter((x) => x !== m))}
+              className={cn(
+                "mr-1 flex size-5 shrink-0 items-center justify-center rounded-full transition-colors",
+                inUse
+                  ? "text-accent-fg/60 hover:bg-accent-fg/15 hover:text-accent-fg"
+                  : "text-fg-tertiary hover:bg-selected hover:text-fg",
+              )}
+            >
+              <X size={11} strokeWidth={2.5} aria-hidden="true" />
+            </button>
+          </span>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onPick}
+        className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-hairline px-2.5 text-footnote font-medium text-fg-secondary transition-colors hover:bg-hover hover:text-fg"
+      >
+        <Plus size={12} strokeWidth={2.5} aria-hidden="true" />
+        Chọn model…
+      </button>
+    </div>
+  );
+}
+
 function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete: () => void }) {
   const upsert = useSettingsStore((s) => s.upsertProvider);
+  const setModels = useSettingsStore((s) => s.setModels);
   const setActive = useSettingsStore((s) => s.setActiveProvider);
   const activeId = useSettingsStore((s) => s.activeProviderId);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [showKey, setShowKey] = useState(false);
+  const [picking, setPicking] = useState(false);
   const active = activeId === provider.id;
   const id = (f: string) => `${provider.id}-${f}`;
 
   const runTest = async () => {
     setTest({ kind: "testing" });
     try {
-      const f = await tauriFetch();
-      const models = await listModels(provider.baseUrl, provider.apiKey || undefined, f ?? undefined);
+      const models = await fetchModels(provider);
       setTest({ kind: "ok", count: models.length });
     } catch (e) {
       setTest({ kind: "fail", message: e instanceof Error ? e.message : String(e) });
@@ -84,7 +163,7 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
             Đang dùng
           </span>
         ) : (
-          <SecondaryButton className="h-7 px-3" onClick={() => setActive(provider.id)}>
+          <SecondaryButton className="h-7 px-3" onClick={() => void setActive(provider.id)}>
             Dùng
           </SecondaryButton>
         )}
@@ -111,18 +190,7 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
             autoComplete="off"
           />
         </Field>
-        <Field label="Model" htmlFor={id("model")}>
-          <input
-            id={id("model")}
-            value={provider.model}
-            onChange={(e) => void upsert(provider.id, { model: e.target.value.trim() })}
-            className={input}
-            placeholder="gpt-4o-mini"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
-        <Field label="API key" htmlFor={id("key")} className="col-span-2">
+        <Field label="API key" htmlFor={id("key")}>
           <div className="relative">
             <input
               id={id("key")}
@@ -130,7 +198,7 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
               value={provider.apiKey}
               onChange={(e) => void upsert(provider.id, { apiKey: e.target.value })}
               className={cn(input, "pr-10 font-mono")}
-              placeholder="sk-… (để trống với Ollama local)"
+              placeholder="sk-… (Ollama: để trống)"
               spellCheck={false}
               autoComplete="off"
             />
@@ -146,7 +214,14 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
         </Field>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3">
+        <div id={id("models")} className="mb-1.5 text-footnote font-medium text-fg-secondary">
+          Model
+        </div>
+        <ModelChips provider={provider} active={active} labelledBy={id("models")} onPick={() => setPicking(true)} />
+      </div>
+
+      <div className="mt-3.5 flex items-center gap-3">
         <SecondaryButton onClick={() => void runTest()} disabled={test.kind === "testing"}>
           {test.kind === "testing" && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
           Kiểm tra kết nối
@@ -164,6 +239,18 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
           )}
         </span>
       </div>
+
+      <ModelPickerDialog
+        open={picking}
+        providerName={provider.name}
+        saved={provider.models}
+        loadModels={() => fetchModels(provider)}
+        onSave={(models) => {
+          void setModels(provider.id, models);
+          setPicking(false);
+        }}
+        onClose={() => setPicking(false)}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Check, ChevronDown, Maximize2, Minimize2, Settings2, Sparkles, SquarePen, X } from "lucide-react";
+import { Maximize2, Minimize2, Sparkles, SquarePen, X } from "lucide-react";
 import { useChatStore } from "../../lib/store/chatStore";
 import { useSettingsStore } from "../../lib/store/settingsStore";
 import { useNotesStore } from "../../lib/store/notesStore";
@@ -7,54 +7,9 @@ import { useUi } from "../../lib/store/uiStore";
 import { cn } from "../../lib/utils";
 import { ContentHeader } from "../layout/ContentHeader";
 import { IconButton } from "../ui/Button";
-import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../ui/Menu";
 import { MessageList } from "./MessageList";
 import { Composer, type ComposerHandle } from "./Composer";
-
-function ProviderPicker({ compact }: { compact: boolean }) {
-  const providers = useSettingsStore((s) => s.providers);
-  const activeId = useSettingsStore((s) => s.activeProviderId);
-  const setActive = useSettingsStore((s) => s.setActiveProvider);
-  const setSection = useUi((s) => s.setSection);
-  const active = providers.find((p) => p.id === activeId) ?? providers[0];
-
-  return (
-    <Menu
-      align="start"
-      width={260}
-      trigger={(p) => (
-        <button
-          type="button"
-          {...p}
-          title="Chọn nhà cung cấp / model"
-          className={cn(
-            "inline-flex h-8 min-w-0 items-center gap-1 rounded-sm px-2 font-semibold text-fg transition-colors hover:bg-hover",
-            compact ? "text-callout" : "text-headline",
-          )}
-        >
-          <span className="truncate">{active ? active.model || active.name : "Chưa cấu hình AI"}</span>
-          <ChevronDown size={14} strokeWidth={2.25} aria-hidden="true" className="shrink-0 text-fg-tertiary" />
-        </button>
-      )}
-    >
-      {providers.length > 0 && <MenuLabel>Nhà cung cấp</MenuLabel>}
-      {providers.map((pr) => (
-        <MenuItem
-          key={pr.id}
-          icon={pr.id === active?.id ? <Check size={14} /> : <span />}
-          hint={pr.name}
-          onSelect={() => setActive(pr.id)}
-        >
-          {pr.model || pr.name}
-        </MenuItem>
-      ))}
-      {providers.length > 0 && <MenuSeparator />}
-      <MenuItem icon={<Settings2 size={14} />} onSelect={() => setSection("settings")}>
-        Quản lý nhà cung cấp…
-      </MenuItem>
-    </Menu>
-  );
-}
+import { ModelPicker } from "./ModelPicker";
 
 const SUGGESTIONS_SIDE = [
   { label: "Tóm tắt", prompt: "Tóm tắt ghi chú đang mở thành các ý chính." },
@@ -135,7 +90,7 @@ export function ChatPanel({ variant }: ChatPanelProps) {
   const headerLeading = (
     <>
       {isSide && <Sparkles size={14} aria-hidden="true" className="ml-1 shrink-0 text-fg-secondary" />}
-      <ProviderPicker compact={isSide} />
+      <ModelPicker compact={isSide} />
     </>
   );
 

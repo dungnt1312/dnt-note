@@ -178,6 +178,7 @@ input:focus-visible,
 textarea:focus-visible,
 .cm-editor :focus-visible,
 [role="menuitem"]:focus-visible,
+[role="menuitemradio"]:focus-visible,
 [role="option"]:focus-visible {
   outline: none;
 }

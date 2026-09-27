@@ -36,7 +36,7 @@ describe("chatStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSettingsStore.setState({
-      providers: [{ id: "p1", name: "Test", baseUrl: "http://x", model: "m", apiKey: "k" }],
+      providers: [{ id: "p1", name: "Test", baseUrl: "http://x", model: "m", models: ["m"], apiKey: "k" }],
       activeProviderId: "p1",
       loaded: true,
     });
@@ -64,6 +64,16 @@ describe("chatStore", () => {
     expect(s.messages[1]).toMatchObject({ role: "assistant", content: "Xin chào bạn!" });
     expect(s.status).toBe("idle");
     expect(saveMock).toHaveBeenCalled();
+  });
+
+  it("send asks to pick a model when the provider has none", async () => {
+    useSettingsStore.setState({
+      providers: [{ id: "p1", name: "Test", baseUrl: "http://x", model: "", models: [], apiKey: "k" }],
+    });
+    await useChatStore.getState().send("hi", []);
+    expect(runAgentMock).not.toHaveBeenCalled();
+    expect(useChatStore.getState().messages).toHaveLength(0);
+    expect(useChatStore.getState().error).toMatch(/model/);
   });
 
   it("tool events appear as toolCalls on the assistant message", async () => {
