@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { EditorState, type TransactionSpec } from "@codemirror/state";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
@@ -189,3 +189,27 @@ describe("image widget spec", () => {
     expect(collectLineDecorations(node, line.from, line.to, line.text, true)).toEqual([]);
   });
 });
+
+describe("imageField refresh", () => {
+  it("rebuilds image decorations on refreshImages once the dir is set", async () => {
+    const { imageField, refreshImages } = await import("./livePreview");
+    const media = await import("../media/attachmentUrl");
+    media.setAttachmentsDirForTest(null);
+    let s = EditorState.create({
+      doc: "![p](attachments/a.png)\n\ntext",
+      selection: { anchor: 26 },
+      extensions: [markdown({ base: markdownLanguage, extensions: GFM }), imageField],
+    });
+    expect(s.field(imageField).size).toBe(0);
+    media.setAttachmentsDirForTest("/data/attachments");
+    expect(s.update({}).state.field(imageField).size).toBe(0);
+    s = s.update({ effects: refreshImages.of(null) }).state;
+    expect(s.field(imageField).size).toBe(1);
+    media.setAttachmentsDirForTest(null);
+  });
+});
+
+// Hoisted by vitest; convertFileSrc needs Tauri internals otherwise.
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (p: string) => `http://asset.localhost/${encodeURIComponent(p)}`,
+}));

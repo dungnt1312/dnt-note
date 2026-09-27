@@ -28,6 +28,23 @@ describe("rewriteAttachmentSrc", () => {
     );
   });
 
+  it("rejects traversal and separators in the name", () => {
+    setAttachmentsDirForTest("/data/attachments");
+    for (const u of [
+      "attachments/..%2F..%2Fsecret.png",
+      "attachments/../x",
+      "attachments/a%5Cb.png",
+      "attachments/a%00.png",
+      "attachments/sub/a.png",
+      "/attachments/a.png",
+    ]) {
+      expect(rewriteAttachmentSrc(u)).toBe(u);
+    }
+    expect(rewriteAttachmentSrc("./attachments/a.png")).toBe(
+      `http://asset.localhost/${encodeURIComponent("/data/attachments/a.png")}`,
+    );
+  });
+
   it("leaves other urls unchanged", () => {
     setAttachmentsDirForTest("/data/attachments");
     expect(rewriteAttachmentSrc("https://x.com/a.png")).toBe("https://x.com/a.png");

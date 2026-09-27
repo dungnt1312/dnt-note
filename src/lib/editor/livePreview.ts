@@ -1,9 +1,9 @@
 import { syntaxTree } from "@codemirror/language";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
-import { EditorState, StateField, type Extension, type TransactionSpec } from "@codemirror/state";
+import { EditorState, StateEffect, StateField, type Extension, type TransactionSpec } from "@codemirror/state";
 import type { SyntaxNode, SyntaxNodeRef } from "@lezer/common";
-import { rewriteAttachmentSrc } from "../media/attachmentUrl";
+import { onAttachmentsDirReady, rewriteAttachmentSrc } from "../media/attachmentUrl";
 
 export type DecorationSpec =
   | { kind: "mark"; from: number; to: number; class: string }
@@ -340,10 +340,17 @@ function buildImageDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-const imageField = StateField.define<DecorationSet>({
+/** Forces the image field to rebuild (e.g. once attachment URLs become resolvable). */
+export const refreshImages = StateEffect.define<null>();
+
+export const imageField = StateField.define<DecorationSet>({
   create: (state) => buildImageDecorations(state),
   update(value, tr) {
-    if (tr.docChanged || tr.selection || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
+    if (
+      tr.docChanged ||
+      tr.selection ||
+      tr.effects.some((e) => e.is(refreshImages)) || syntaxTree(tr.startState) !== syntaxTree(tr.state)
+    ) {
       return buildImageDecorations(tr.state);
     }
     return value;
@@ -353,7 +360,20 @@ const imageField = StateField.define<DecorationSet>({
 
 /** Obsidian-style live preview extension for markdown documents. */
 export function livePreview(): Extension {
-  return [imageField, ViewPlugin.fromClass(
+  const refresher = ViewPlugin.fromClass(
+    class {
+      unsubscribe: () => void;
+      constructor(view: EditorView) {
+        this.unsubscribe = onAttachmentsDirReady(() =>
+          view.dispatch({ effects: refreshImages.of(null) }),
+        );
+      }
+      destroy() {
+        this.unsubscribe();
+      }
+    },
+  );
+  return [imageField, refresher, ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
