@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 pub const MAX_VERSIONS: usize = 50;
 pub const THROTTLE_SECS: i64 = 5 * 60;
+/// Minimum gap between forced snapshots from agent/MCP edits.
+pub const AGENT_THROTTLE_SECS: i64 = 10;
 const VERSION_FMT: &str = "%Y%m%dT%H%M%S%3fZ";
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -78,11 +80,16 @@ fn version_ids(dir: &Path) -> Vec<String> {
 /// Save `old` as a version. Skipped (Ok(None)) when the newest snapshot is
 /// younger than the throttle window, unless `force`.
 pub fn snapshot(notes_dir: &Path, old: &Note, now: DateTime<Utc>, force: bool) -> Result<Option<String>> {
+    snapshot_with_gap(notes_dir, old, now, if force { 0 } else { THROTTLE_SECS })
+}
+
+/// Save `old` unless the newest snapshot is younger than `min_gap_secs`.
+pub fn snapshot_with_gap(notes_dir: &Path, old: &Note, now: DateTime<Utc>, min_gap_secs: i64) -> Result<Option<String>> {
     let dir = note_dir(notes_dir, &old.id)?;
     let existing = version_ids(&dir);
-    if !force {
+    if min_gap_secs > 0 {
         if let Some(latest) = existing.first().and_then(|v| parse_version(v)) {
-            if (now - latest).num_seconds() < THROTTLE_SECS {
+            if (now - latest).num_milliseconds() < min_gap_secs * 1000 {
                 return Ok(None);
             }
         }
@@ -125,9 +132,18 @@ pub fn read_version(notes_dir: &Path, id: &str, version: &str) -> Result<Note> {
     }
     let path = dir.join(format!("{version}.md"));
     if !path.exists() {
-        return Err(NoteError::NotFound(format!("{id}@{version}")));
+        return Err(NoteError::Unknown("Không tìm thấy phiên bản".into()));
     }
     note_file::parse(&fs::read_to_string(path)?)
+}
+
+/// Newest snapshot of a note, if any.
+pub fn latest(notes_dir: &Path, id: &str) -> Result<Option<Note>> {
+    let dir = note_dir(notes_dir, id)?;
+    match version_ids(&dir).first() {
+        Some(v) => read_version(notes_dir, id, v).map(Some),
+        None => Ok(None),
+    }
 }
 
 pub fn remove_history(notes_dir: &Path, id: &str) {

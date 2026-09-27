@@ -13,6 +13,7 @@ vi.mock("../api/notes", () => ({
       del: vi.fn(async () => {}),
       restore: vi.fn(async () => ({ id: "n1", title: "First", tags: [], pinned: false, created: "", updated: "", snippet: "", wordCount: 0, body: "" })),
       tags: vi.fn(async () => []),
+      snapshot: vi.fn(async () => null),
     },
   },
 }));
@@ -106,6 +107,17 @@ describe("notesStore autosave", () => {
     s.setBody("x");
     await expect(s.flushSave()).rejects.toBe("disk full");
     expect(useNotesStore.getState().saveState).toBe("dirty");
+  });
+
+  it("select() flushes and snapshots the previous note when switching", async () => {
+    const s = useNotesStore.getState();
+    await s.select("n1");
+    s.setBody("edited");
+    await s.select("n2");
+    expect(mocked.update).toHaveBeenCalledWith("n1", { body: "edited" });
+    expect(mocked.update).not.toHaveBeenCalledWith("n2", expect.anything());
+    expect(mocked.snapshot).toHaveBeenCalledWith("n1");
+    expect(useNotesStore.getState()).toMatchObject({ selectedId: "n2", body: "body of n2" });
   });
 
   it("reloadBody() replaces the open body and marks it saved", async () => {

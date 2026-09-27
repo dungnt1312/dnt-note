@@ -92,15 +92,20 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
   },
 
   select: async (id) => {
-    if (get().selectedId === id) return;
+    const prev = get().selectedId;
+    if (prev === id) return;
+    if (prev) {
+      // Save the previous note, then keep its session end-state in history.
+      try {
+        await get().flushSave();
+        await api.notes.snapshot(prev);
+      } catch (e) {
+        console.error("leaving note failed", e);
+      }
+    }
     scheduleSave.cancel();
-    // Save anything unsaved from the previous note before switching.
-    const pending = get().saveState !== "saved" ? get().body : null;
     const note = await api.notes.read(id);
     set({ selectedId: id, body: note.body, saveState: "saved" });
-    if (pending !== null) {
-      await api.notes.update(get().selectedId!, { body: pending });
-    }
   },
 
   create: async () => {

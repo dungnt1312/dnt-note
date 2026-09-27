@@ -64,6 +64,12 @@ pub fn restore_version(state: State<AppState>, id: String, version: String) -> C
 }
 
 #[tauri::command]
+pub fn snapshot_note(state: State<AppState>, id: String) -> CmdResult<Option<String>> {
+    let store = state.store.lock().map_err(err_of)?;
+    store.snapshot_current(&id).map_err(err_of)
+}
+
+#[tauri::command]
 pub fn delete_note(state: State<AppState>, id: String) -> CmdResult<()> {
     let mut store = state.store.lock().map_err(err_of)?;
     store.delete(&id).map_err(err_of)

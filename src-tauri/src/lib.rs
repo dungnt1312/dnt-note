@@ -291,6 +291,7 @@ pub fn run() {
             commands::notes::list_versions,
             commands::notes::read_version,
             commands::notes::restore_version,
+            commands::notes::snapshot_note,
             commands::notes::search_notes,
             commands::notes::list_tags,
             commands::notes::empty_trash,

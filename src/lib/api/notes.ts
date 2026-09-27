@@ -51,6 +51,7 @@ export const api = {
       invoke<Note>("create_note", { title, body, tags }),
     update: (id: string, patch: NotePatchDto) =>
       invoke<Note>("update_note", { id, patch }),
+    snapshot: (id: string) => invoke<string | null>("snapshot_note", { id }),
     listVersions: (id: string) => invoke<VersionMeta[]>("list_versions", { id }),
     readVersion: (id: string, version: string) => invoke<Note>("read_version", { id, version }),
     restoreVersion: (id: string, version: string) =>

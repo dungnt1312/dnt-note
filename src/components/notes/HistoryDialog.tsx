@@ -22,6 +22,7 @@ export function HistoryDialog({ noteId, onClose }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [preview, setPreview] = useState<Note | null>(null);
   const [busy, setBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const pushToast = useUi((s) => s.pushToast);
 
   useEffect(() => {
@@ -43,12 +44,17 @@ export function HistoryDialog({ noteId, onClose }: Props) {
   }, [noteId, pushToast]);
 
   useEffect(() => {
+    setPreviewError(null);
     if (!selected) return setPreview(null);
     let alive = true;
     api.notes
       .readVersion(noteId, selected)
       .then((n) => alive && setPreview(n))
-      .catch(() => alive && setPreview(null));
+      .catch((e) => {
+        if (!alive) return;
+        setPreview(null);
+        setPreviewError(errMsg(e));
+      });
     return () => {
       alive = false;
     };
@@ -103,6 +109,11 @@ export function HistoryDialog({ noteId, onClose }: Props) {
           ))}
         </ul>
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
+          {previewError && (
+            <p role="alert" className="text-callout text-danger">
+              Không tải được phiên bản: {previewError}
+            </p>
+          )}
           {preview && (
             <article className="markdown-body text-body text-fg">
               <h1 className="mb-3 text-title font-semibold">{preview.title || "Chưa đặt tên"}</h1>

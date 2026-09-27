@@ -133,8 +133,12 @@ impl NotesStore {
         let title_changed = patch.title.as_ref().is_some_and(|t| t.trim() != note.title);
         let body_changed = patch.body.as_ref().is_some_and(|b| *b != note.body);
         if title_changed || body_changed {
-            let force = matches!(patch.source.as_deref(), Some("agent") | Some("mcp"));
-            crate::history::snapshot(&self.dir, &note, now, force)?;
+            let forced = matches!(patch.source.as_deref(), Some("agent") | Some("mcp"));
+            let gap = if forced { crate::history::AGENT_THROTTLE_SECS } else { crate::history::THROTTLE_SECS };
+            // History is best-effort: never block the actual save.
+            if let Err(e) = crate::history::snapshot_with_gap(&self.dir, &note, now, gap) {
+                eprintln!("history snapshot failed for {id}: {e}");
+            }
         }
         if let Some(t) = patch.title {
             note.title = t.trim().to_string();
@@ -158,10 +162,11 @@ impl NotesStore {
     /// title/body/tags. id/created/pinned are kept.
     pub fn restore_version(&mut self, id: &str, version: &str) -> Result<Note> {
         let old = crate::history::read_version(&self.dir, id, version)?;
-        let mut note = self.read(id)?;
+        let not_found = || NoteError::Unknown("Không tìm thấy ghi chú".into());
         if !self.index.contains_key(id) {
-            return Err(NoteError::NotFound(id.to_string()));
+            return Err(not_found());
         }
+        let mut note = self.read(id).map_err(|_| not_found())?;
         let now = Utc::now();
         crate::history::snapshot(&self.dir, &note, now, true)?;
         note.title = old.title;
@@ -171,6 +176,25 @@ impl NotesStore {
         self.write_note(&note)?;
         self.index.insert(note.id.clone(), NoteMeta::from(&note));
         Ok(note)
+    }
+
+    /// End-of-session snapshot: always taken (no throttle) unless title and
+    /// body equal the newest snapshot. Returns the created version, if any.
+    pub fn snapshot_current(&self, id: &str) -> Result<Option<String>> {
+        self.snapshot_current_at(id, Utc::now())
+    }
+
+    pub(crate) fn snapshot_current_at(&self, id: &str, now: DateTime<Utc>) -> Result<Option<String>> {
+        if !self.index.contains_key(id) {
+            return Err(NoteError::Unknown("Không tìm thấy ghi chú".into()));
+        }
+        let note = self.read(id)?;
+        if let Some(last) = crate::history::latest(&self.dir, id)? {
+            if last.title == note.title && last.body == note.body {
+                return Ok(None);
+            }
+        }
+        crate::history::snapshot(&self.dir, &note, now, true)
     }
 
     /// Move the note file into `.trash/` (recoverable).
@@ -534,6 +558,45 @@ mod tests {
     }
 
     #[test]
+    fn agent_snapshots_throttled_to_ten_seconds() {
+        let (_tmp, mut store) = setup();
+        let n = store.create("t", "v0", vec![]).unwrap();
+        let s = |b: &str| NotePatch { source: Some("mcp".into()), ..body(b) };
+        let t0 = n.updated;
+        store.update_at(&n.id, s("v1"), t0).unwrap();
+        store.update_at(&n.id, s("v2"), t0 + chrono::Duration::seconds(5)).unwrap();
+        store.update_at(&n.id, s("v3"), t0 + chrono::Duration::seconds(11)).unwrap();
+        let list = crate::history::list_versions(store.notes_dir(), &n.id).unwrap();
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn snapshot_failure_does_not_block_update() {
+        let (_tmp, mut store) = setup();
+        let n = store.create("t", "v0", vec![]).unwrap();
+        let root = crate::history::history_root(store.notes_dir());
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(&n.id), "blocker").unwrap();
+        let r = store.update(&n.id, body("v1")).unwrap();
+        assert_eq!(r.body, "v1");
+        assert_eq!(store.read(&n.id).unwrap().body, "v1");
+    }
+
+    #[test]
+    fn snapshot_current_dedupes_against_latest() {
+        let (_tmp, mut store) = setup();
+        let n = store.create("t", "v0", vec![]).unwrap();
+        let t0 = n.updated;
+        assert!(store.snapshot_current_at(&n.id, t0).unwrap().is_some());
+        assert!(store.snapshot_current_at(&n.id, t0 + chrono::Duration::seconds(1)).unwrap().is_none());
+        store.update_at(&n.id, body("v1"), t0 + chrono::Duration::seconds(2)).unwrap(); // throttled
+        assert!(store.snapshot_current_at(&n.id, t0 + chrono::Duration::seconds(3)).unwrap().is_some());
+        let list = crate::history::list_versions(store.notes_dir(), &n.id).unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(store.snapshot_current("missing").is_err());
+    }
+
+    #[test]
     fn no_snapshot_when_content_unchanged() {
         let (_tmp, mut store) = setup();
         let n = store.create("t", "b", vec![]).unwrap();
@@ -560,6 +623,8 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].title, "new");
         assert!(store.restore_version(&n.id, "bad").is_err());
+        let e = store.restore_version(&n.id, "20000101T000000000Z").unwrap_err().to_string();
+        assert_eq!(e, "Không tìm thấy phiên bản");
     }
 
     #[test]
