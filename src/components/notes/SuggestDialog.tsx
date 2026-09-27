@@ -38,7 +38,8 @@ export function SuggestDialog({ noteId, title, body, tags, onClose }: Props) {
         setPicked(s.tags);
       })
       .catch((e) => {
-        if (!ctrl.signal.aborted) setError(errMsg(e));
+        if (!ctrl.signal.aborted)
+          setError(`Không lấy được gợi ý từ AI — kiểm tra kết nối hoặc provider đang dùng. (${errMsg(e)})`);
       });
     return () => ctrl.abort();
     // Run once per open; inputs are a snapshot.
