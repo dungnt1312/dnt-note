@@ -1,0 +1,271 @@
+use crate::error::{NoteError, Result};
+use base64::Engine as _;
+use std::fs;
+use std::io::Read;
+use std::path::Path;
+
+pub const MAX_FILE_BYTES: u64 = 25 * 1024 * 1024;
+pub const MAX_FILES_PER_NOTE: usize = 10;
+pub const MAX_IMAGE_EDGE_PX: u32 = 2048;
+
+/// Extensions accepted as attachments (parity with NoteStudio).
+pub const ALLOWED_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", // images
+    "pdf", "docx", "rtf", "odt", "txt", "md", "csv", "json",
+    "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
+];
+
+pub fn is_allowed(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| ALLOWED_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// Names referenced as `(attachments/<name>)` in a note body.
+pub fn refs_in_body(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for rest in body.split("(attachments/") {
+        let Some(after) = rest.split_once(')') else {
+            continue;
+        };
+        let name = after.0.trim();
+        if !name.is_empty() && !name.contains('/') && !name.contains('\\') {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// Copy a file into the attachments dir as `<uuid>-<original name>`.
+pub fn save_file(attachments_dir: &Path, src: &Path) -> Result<String> {
+    if !is_allowed(src) {
+        return Err(NoteError::Unknown(format!(
+            "Định dạng không hỗ trợ: {}",
+            src.extension().and_then(|e| e.to_str()).unwrap_or("?")
+        )));
+    }
+    let size = fs::metadata(src)?.len();
+    if size > MAX_FILE_BYTES {
+        return Err(NoteError::Unknown(format!(
+            "File quá lớn ({:.1}MB, giới hạn 25MB)",
+            size as f64 / (1024.0 * 1024.0)
+        )));
+    }
+    let file_name = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| NoteError::Unknown("Tên file không hợp lệ".into()))?;
+    let stored = format!("{}-{}", uuid::Uuid::new_v4(), file_name);
+    fs::create_dir_all(attachments_dir)?;
+    fs::copy(src, attachments_dir.join(&stored))?;
+    Ok(stored)
+}
+
+/// Plain-text-ish extraction for text/code/docx; images return a marker.
+/// PDF is handled by the app layer (heavier dependency).
+pub fn extract_text(path: &Path) -> Result<String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "docx" => extract_docx(path),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => Ok("[hình ảnh — dùng vision model để mô tả]".into()),
+        _ => {
+            let mut text = String::new();
+            fs::File::open(path)?.read_to_string(&mut text)?;
+            if text.contains('\u{0}') {
+                return Err(NoteError::Unknown("File nhị phân không đọc được dưới dạng text".into()));
+            }
+            Ok(text)
+        }
+    }
+}
+
+/// DOCX = zip with word/document.xml; strip tags, keep paragraph breaks.
+fn extract_docx(path: &Path) -> Result<String> {
+    let file = fs::File::open(path)?;
+    let mut zip = zip::ZipArchive::new(file)
+        .map_err(|e| NoteError::Unknown(format!("Không đọc được docx: {e}")))?;
+    let mut xml = String::new();
+    zip.by_name("word/document.xml")
+        .map_err(|e| NoteError::Unknown(format!("docx thiếu document.xml: {e}")))?
+        .read_to_string(&mut xml)?;
+
+    // Paragraph ends become newlines before stripping the remaining tags.
+    let expanded = xml.replace("</w:p>", "\n").replace("<w:br/>", "\n").replace("<w:tab/>", "\t");
+    Ok(collapse_blank_lines(&strip_tags(&expanded)))
+}
+
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn collapse_blank_lines(s: &str) -> String {
+    let mut out = String::new();
+    let mut blank = true;
+    for line in s.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            if !blank {
+                out.push('\n');
+            }
+            blank = true;
+        } else {
+            out.push_str(trimmed);
+            out.push('\n');
+            blank = false;
+        }
+    }
+    out
+}
+
+/// Downscale an image so its longest edge ≤ `max_px`; returns a data URL.
+pub fn prepare_image(path: &Path, max_px: u32) -> Result<String> {
+    let img = image::open(path).map_err(|e| NoteError::Unknown(format!("Không mở được ảnh: {e}")))?;
+    let resized = if img.width().max(img.height()) > max_px {
+        img.resize(max_px, max_px, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+    let dynamic = resized.to_rgba8();
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(dynamic)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(|e| NoteError::Unknown(format!("Encode ảnh: {e}")))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+/// Delete files in attachments_dir not present in `referenced`. Returns count.
+pub fn cleanup_orphans(attachments_dir: &Path, referenced: &std::collections::HashSet<String>) -> Result<usize> {
+    let mut removed = 0;
+    if !attachments_dir.exists() {
+        return Ok(0);
+    }
+    for entry in fs::read_dir(attachments_dir)?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if !referenced.contains(&name) {
+            fs::remove_file(&path)?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::io::Write;
+
+    #[test]
+    fn refs_in_body_finds_markdown_links() {
+        let body = "ảnh: ![a](attachments/x-1.png)\nfile: [b](attachments/y-2.pdf)\nköd: (attachments/../etc)\nempty: ()";
+        assert_eq!(refs_in_body(body), vec!["x-1.png", "y-2.pdf"]);
+    }
+
+    #[test]
+    fn save_file_renames_with_uuid_and_rejects() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("report.txt");
+        fs::write(&src, "hello").unwrap();
+        let bad = tmp.path().join("evil.exe");
+        fs::write(&bad, "MZ").unwrap();
+        let dir = tmp.path().join("att");
+
+        let stored = save_file(&dir, &src).unwrap();
+        assert!(stored.ends_with("-report.txt"));
+        assert!(stored != "report.txt");
+        assert!(dir.join(&stored).exists());
+        assert!(save_file(&dir, &bad).is_err());
+
+        let big = tmp.path().join("big.md");
+        fs::write(&big, vec![b'x'; (MAX_FILE_BYTES + 1) as usize]).unwrap();
+        assert!(save_file(&dir, &big).is_err());
+    }
+
+    #[test]
+    fn extract_text_txt_and_binary() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let txt = tmp.path().join("a.txt");
+        fs::write(&txt, "nội dung\n").unwrap();
+        assert_eq!(extract_text(&txt).unwrap(), "nội dung\n");
+        let bin = tmp.path().join("b.dat");
+        fs::write(&bin, [0u8, 1, 0, 2]).unwrap();
+        assert!(extract_text(&bin).is_err());
+    }
+
+    #[test]
+    fn extract_docx_paragraphs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let docx_path = tmp.path().join("t.docx");
+        let file = fs::File::create(&docx_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options: zip::write::SimpleFileOptions = Default::default();
+        zip.start_file("word/document.xml", options).unwrap();
+        let xml = "<?xml?><w:document><w:p><w:t>Dòng 1</w:t></w:p><w:p><w:t>Dòng 2</w:t></w:p></w:document>";
+        zip.write_all(xml.as_bytes()).unwrap();
+        zip.finish().unwrap();
+        let text = extract_text(&docx_path).unwrap();
+        assert!(text.contains("Dòng 1"));
+        assert!(text.contains("Dòng 2"));
+        assert!(!text.contains("w:document"));
+    }
+
+    #[test]
+    fn prepare_image_downscales_long_edge() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let img_path = tmp.path().join("big.png");
+        // 3000x1000 red image
+        let img = image::RgbaImage::from_pixel(3000, 1000, image::Rgba([255u8, 0, 0, 255]));
+        img.save(&img_path).unwrap();
+        let data_url = prepare_image(&img_path, MAX_IMAGE_EDGE_PX).unwrap();
+        assert!(data_url.starts_with("data:image/png;base64,"));
+        let b64 = data_url.split(",").nth(1).unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(decoded.width().max(decoded.height()), MAX_IMAGE_EDGE_PX);
+        // small image stays untouched
+        let small = tmp.path().join("small.png");
+        image::RgbaImage::from_pixel(100, 60, image::Rgba([0, 255, 0, 255])).save(&small).unwrap();
+        let url2 = prepare_image(&small, MAX_IMAGE_EDGE_PX).unwrap();
+        let bytes2 = base64::engine::general_purpose::STANDARD.decode(url2.split(",").nth(1).unwrap()).unwrap();
+        assert_eq!(image::load_from_memory(&bytes2).unwrap().width(), 100);
+    }
+
+    #[test]
+    fn cleanup_orphans_removes_unreferenced_only() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("att");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("keep.png"), "k").unwrap();
+        fs::write(dir.join("orphan.png"), "o").unwrap();
+        let mut refs = HashSet::new();
+        refs.insert("keep.png".to_string());
+        assert_eq!(cleanup_orphans(&dir, &refs).unwrap(), 1);
+        assert!(dir.join("keep.png").exists());
+        assert!(!dir.join("orphan.png").exists());
+        assert_eq!(cleanup_orphans(&dir, &refs).unwrap(), 0);
+    }
+}

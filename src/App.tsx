@@ -15,6 +15,32 @@ import { useUi } from "./lib/store/uiStore";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+function useDeepLinkAndSync() {
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = listen<string>("deep-link://url", (event) => {
+      // dntnote://note/<id>
+      const m = /dntnote:\/\/note\/([\w-]+)/.exec(event.payload ?? "");
+      if (m) void useNotesStore.getState().select(m[1]);
+    });
+    const unlistenSync = listen<{ copiedOut: number; copiedIn: number; resolved: number }>(
+      "sync://status",
+      (event) => {
+        const r = event.payload;
+        if (!r) return;
+        useUi.getState().pushToast({
+          message: `Đồng bộ: ↗${r.copiedOut} ↙${r.copiedIn} ✓${r.resolved}`,
+          durationMs: 4000,
+        });
+      },
+    );
+    return () => {
+      void unlisten.then((f) => f());
+      void unlistenSync.then((f) => f());
+    };
+  }, []);
+}
+
 function useNoteEvents() {
   useEffect(() => {
     if (!isTauri) return;
@@ -57,6 +83,7 @@ function Shell() {
   const setPaletteOpen = useUi((s) => s.setPaletteOpen);
   const paletteOpen = useUi((s) => s.paletteOpen);
   useNoteEvents();
+  useDeepLinkAndSync();
 
   useEffect(() => {
     void load();

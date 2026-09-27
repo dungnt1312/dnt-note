@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
-import { Pin, PinOff } from "lucide-react";
+import { Pin, PinOff, Paperclip, FileDown } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
+import { useUi } from "../../lib/store/uiStore";
 import { editorSetup } from "../../lib/editor/editorSetup";
 import { TagInput } from "./TagInput";
+import { attachmentsApi } from "../../lib/api/attachments";
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export function NoteEditor() {
   const selectedId = useNotesStore((s) => s.selectedId);
@@ -16,6 +20,7 @@ export function NoteEditor() {
   const setPinned = useNotesStore((s) => s.setPinned);
   const setTags = useNotesStore((s) => s.setTags);
   const flushSave = useNotesStore((s) => s.flushSave);
+  const pushToast = useUi((s) => s.pushToast);
 
   const editorHost = useRef<HTMLDivElement | null>(null);
   const onChangeRef = useRef(setBody);
@@ -62,6 +67,48 @@ export function NoteEditor() {
     );
   }
 
+  const attach = async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "Tệp đính kèm",
+            extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf", "docx", "rtf", "odt", "txt", "md", "csv", "json", "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh"],
+          },
+        ],
+      });
+      if (typeof picked !== "string") return;
+      const stored = await attachmentsApi.attach(note.id, picked);
+      pushToast({
+        message: `Đã đính kèm ${stored.name.split("-").slice(1).join("-")}`,
+        durationMs: 4000,
+      });
+      // Rust already appended the reference link to the body — load it back.
+      const { api } = await import("../../lib/api/notes");
+      const updated = await api.notes.read(note.id);
+      useNotesStore.setState({ body: updated.body, saveState: "saved" });
+    } catch (e) {
+      pushToast({ message: `Không đính kèm được: ${e}`, durationMs: 6000 });
+    }
+  };
+
+  const exportPdf = () => {
+    if (!isTauri) return;
+    void import("@tauri-apps/api/webviewWindow").then(({ WebviewWindow }) => {
+      const label = `print-${note.id.slice(0, 8)}-${Date.now()}`;
+      void new WebviewWindow(label, {
+        url: `index.html?print=${note.id}`,
+        title: `Xuất PDF — ${note.title}`,
+        width: 820,
+        height: 1000,
+      });
+      pushToast({ message: "Đã mở cửa sổ in — chọn 'Save as PDF'", durationMs: 5000 });
+    });
+  };
+
   const saveStateLabel =
     saveState === "saving" ? "Đang lưu…" : saveState === "dirty" ? "Chưa lưu" : "Đã lưu";
 
@@ -88,6 +135,20 @@ export function NoteEditor() {
         <div className="mt-2 flex items-center gap-3 flex-wrap">
           <TagInput tags={note.tags} onChange={(tags) => void setTags(note.id, tags)} />
           <div className="flex-1" />
+          <button
+            onClick={() => void attach()}
+            title="Đính kèm file/ảnh"
+            className="p-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+          >
+            <Paperclip size={15} />
+          </button>
+          <button
+            onClick={exportPdf}
+            title="Xuất PDF (qua hộp thoại in)"
+            className="p-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+          >
+            <FileDown size={15} />
+          </button>
           <button
             onClick={() => void setPinned(note.id, !note.pinned)}
             title={note.pinned ? "Bỏ ghim" : "Ghim ghi chú"}

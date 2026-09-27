@@ -1,2 +1,69 @@
 @import "tailwindcss";
 @import "./theme/tokens.css";
+
+/* Print/export view (window ?print=<id>) */
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}
+
+.print-root {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 32px 8px;
+  background: white;
+  color: black;
+  user-select: text;
+}
+.print-root h1 {
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+.print-meta {
+  font-size: 12px;
+  color: #666;
+}
+.print-body {
+  font-size: 14px;
+  line-height: 1.7;
+  user-select: text;
+}
+.print-body pre,
+.print-body code {
+  font-family: Consolas, monospace;
+  background: #f4f4f5;
+  border-radius: 4px;
+}
+.print-body pre {
+  padding: 10px;
+  overflow-x: auto;
+}
+.print-body table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.print-body td,
+.print-body th {
+  border: 1px solid #ccc;
+  padding: 4px 8px;
+}
+.print-body ul {
+  list-style: disc;
+  padding-left: 22px;
+}
+.print-body ol {
+  list-style: decimal;
+  padding-left: 22px;
+}
+.print-body blockquote {
+  border-left: 3px solid #ccc;
+  margin-left: 0;
+  padding-left: 12px;
+  color: #555;
+}
