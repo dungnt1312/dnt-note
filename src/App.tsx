@@ -11,6 +11,7 @@ import { ChatPanel } from "./components/chat/ChatPanel";
 import { ensureLlmFetch } from "./components/settings/ProvidersSection";
 import { UndoToast } from "./components/common/UndoToast";
 import { useNotesStore } from "./lib/store/notesStore";
+import { useSettingsStore } from "./lib/store/settingsStore";
 import { useUi } from "./lib/store/uiStore";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -88,6 +89,7 @@ function Shell() {
   useEffect(() => {
     void load();
     void ensureLlmFetch();
+    void useSettingsStore.getState().loadStore();
   }, [load]);
 
   useEffect(() => {
