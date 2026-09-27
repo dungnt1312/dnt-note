@@ -173,10 +173,12 @@ body {
   outline-offset: 2px;
 }
 
-/* Text fields show focus through their own border/caret instead of a ring. */
+/* Text fields and menu rows show focus through their own border/fill instead of a ring. */
 input:focus-visible,
 textarea:focus-visible,
-.cm-editor :focus-visible {
+.cm-editor :focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible {
   outline: none;
 }
 

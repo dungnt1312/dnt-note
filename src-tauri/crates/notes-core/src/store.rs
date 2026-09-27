@@ -225,6 +225,31 @@ impl NotesStore {
         n
     }
 
+    /// Names referenced as `(attachments/<name>)` across all note bodies.
+    pub fn attachment_refs(&self) -> std::collections::HashSet<String> {
+        let mut refs = std::collections::HashSet::new();
+        for id in self.index.keys() {
+            if let Ok(note) = self.read(id) {
+                refs.extend(crate::attachments::refs_in_body(&note.body));
+            }
+        }
+        refs
+    }
+
+    /// Read at most `max_chars` characters of the body starting at
+    /// `char_offset` (for MCP reads of long notes). Returns (text, total_chars).
+    pub fn read_body_range(&self, id: &str, char_offset: usize, max_chars: usize) -> Result<(String, usize)> {
+        let note = self.read(id)?;
+        let total = note.body.chars().count();
+        let text: String = note
+            .body
+            .chars()
+            .skip(char_offset)
+            .take(max_chars.max(1))
+            .collect();
+        Ok((text, total))
+    }
+
     fn file_of(&self, id: &str) -> PathBuf {
         self.dir.join(format!("{}.md", id))
     }
@@ -384,5 +409,31 @@ mod tests {
         fs::write(tmp.path().join("notes/.trash/stray.md"), "x").unwrap();
         assert_eq!(store.empty_trash(), 3);
         assert_eq!(store.empty_trash(), 0);
+    }
+
+    #[test]
+    fn attachment_refs_scans_all_bodies() {
+        let (_tmp, mut store) = setup();
+        store
+            .create("a", "![x](attachments/k1.png) [f](attachments/k2.pdf)", vec![])
+            .unwrap();
+        store.create("b", "no refs here", vec![]).unwrap();
+        let refs = store.attachment_refs();
+        assert!(refs.contains("k1.png"));
+        assert!(refs.contains("k2.pdf"));
+        assert_eq!(refs.len(), 2);
+    }
+
+    #[test]
+    fn read_body_range_slices_unicode_safely() {
+        let (_tmp, mut store) = setup();
+        let note = store.create("Đô", "àáạbcdefghijklmnop", vec![]).unwrap();
+        let (slice, total) = store.read_body_range(&note.id, 0, 4).unwrap();
+        assert_eq!(slice, "àáạb");
+        assert_eq!(total, 18);
+        let (slice2, _) = store.read_body_range(&note.id, 15, 100).unwrap();
+        assert_eq!(slice2, "nop");
+        let (slice3, _) = store.read_body_range(&note.id, 0, 0).unwrap();
+        assert_eq!(slice3.chars().count(), 1); // max 0 clamps to 1
     }
 }

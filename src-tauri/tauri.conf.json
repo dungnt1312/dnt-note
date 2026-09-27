@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "DNT Note",
         "width": 1280,
         "height": 800,
@@ -19,10 +20,30 @@
         "minHeight": 560,
         "decorations": false,
         "center": true
+      },
+      {
+        "label": "quickcapture",
+        "title": "DNT Note — Quick capture",
+        "url": "index.html?quick=1",
+        "width": 440,
+        "height": 170,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["dntnote"]
+      }
     }
   },
   "bundle": {

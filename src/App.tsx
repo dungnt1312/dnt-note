@@ -12,7 +12,37 @@ import { ensureLlmFetch } from "./components/settings/ProvidersSection";
 import { Toast } from "./components/common/Toast";
 import { useNotesStore } from "./lib/store/notesStore";
 import { useChatStore } from "./lib/store/chatStore";
+import { useSettingsStore } from "./lib/store/settingsStore";
 import { useUi } from "./lib/store/uiStore";
+
+function useDeepLinkAndSync() {
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = listen<string>("deep-link://url", (event) => {
+      // dntnote://note/<id>
+      const m = /dntnote:\/\/note\/([\w-]+)/.exec(event.payload ?? "");
+      if (m) {
+        useUi.getState().setSection("notes");
+        void useNotesStore.getState().select(m[1]);
+      }
+    });
+    const unlistenSync = listen<{ copiedOut: number; copiedIn: number; resolved: number }>(
+      "sync://status",
+      (event) => {
+        const r = event.payload;
+        if (!r) return;
+        useUi.getState().pushToast({
+          message: `Đã đồng bộ · ↗ ${r.copiedOut} · ↙ ${r.copiedIn} · ✓ ${r.resolved}`,
+          durationMs: 4000,
+        });
+      },
+    );
+    return () => {
+      void unlisten.then((f) => f());
+      void unlistenSync.then((f) => f());
+    };
+  }, []);
+}
 
 function useNoteEvents() {
   useEffect(() => {
@@ -113,11 +143,13 @@ function Shell() {
   const section = useUi((s) => s.section);
   const chatOpen = useUi((s) => s.chatOpen);
   useNoteEvents();
+  useDeepLinkAndSync();
   useShortcuts();
 
   useEffect(() => {
     void load();
     void ensureLlmFetch();
+    void useSettingsStore.getState().loadStore();
   }, [load]);
 
   return (

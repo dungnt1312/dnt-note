@@ -3,8 +3,10 @@ import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import {
   Copy,
+  FileDown,
   FileText,
   MoreHorizontal,
+  Paperclip,
   Pin,
   Plus,
   Sparkles,
@@ -13,6 +15,9 @@ import {
 } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
+import { api } from "../../lib/api/notes";
+import { attachmentsApi } from "../../lib/api/attachments";
+import { isTauri } from "../../lib/env";
 import { editorSetup } from "../../lib/editor/editorSetup";
 import { fullDateTime, relativeTime } from "../../lib/dates";
 import { cn } from "../../lib/utils";
@@ -43,6 +48,11 @@ export function AssistantToggle() {
     </button>
   );
 }
+
+const ATTACHABLE = [
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf", "docx", "rtf", "odt", "txt", "md", "csv", "json",
+  "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
+];
 
 function wordStats(body: string): string {
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
@@ -143,6 +153,39 @@ export function NoteEditor() {
     );
   }
 
+  const attach = async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: false,
+        filters: [{ name: "Tệp đính kèm", extensions: ATTACHABLE }],
+      });
+      if (typeof picked !== "string") return;
+      await flushSave();
+      const stored = await attachmentsApi.attach(note.id, picked);
+      pushToast({ message: `Đã đính kèm ${stored.name.split("-").slice(1).join("-")}`, durationMs: 4000 });
+      // Rust already appended the reference link to the body — load it back.
+      const updated = await api.notes.read(note.id);
+      useNotesStore.setState({ body: updated.body, saveState: "saved" });
+    } catch (e) {
+      pushToast({ message: `Không đính kèm được: ${e}`, durationMs: 6000 });
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!isTauri) return;
+    await flushSave();
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    void new WebviewWindow(`print-${note.id.slice(0, 8)}-${Date.now()}`, {
+      url: `index.html?print=${note.id}`,
+      title: `Xuất PDF — ${note.title}`,
+      width: 820,
+      height: 1000,
+    });
+    pushToast({ message: "Đã mở cửa sổ in — chọn “Save as PDF”", durationMs: 5000 });
+  };
+
   const commitTitle = () => {
     const t = titleDraft.trim();
     if (t && t !== note.title) void setTitle(note.id, t);
@@ -191,6 +234,12 @@ export function NoteEditor() {
                 }}
               >
                 Sao chép Markdown
+              </MenuItem>
+              <MenuItem icon={<Paperclip size={14} />} disabled={!isTauri} onSelect={() => void attach()}>
+                Đính kèm ảnh hoặc tệp…
+              </MenuItem>
+              <MenuItem icon={<FileDown size={14} />} disabled={!isTauri} onSelect={() => void exportPdf()}>
+                Xuất PDF…
               </MenuItem>
               <MenuSeparator />
               <MenuLabel>

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { FolderOpen, Trash2 } from "lucide-react";
+import { FolderOpen, FolderSync, Trash2 } from "lucide-react";
 import { api } from "../../lib/api/notes";
+import { syncApi } from "../../lib/api/attachments";
 import { useUi } from "../../lib/store/uiStore";
 import { useSettingsStore } from "../../lib/store/settingsStore";
 import { isTauri } from "../../lib/env";
@@ -117,6 +118,35 @@ function AppearanceSection() {
 function DataSection() {
   const pushToast = useUi((s) => s.pushToast);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [syncFolder, setSyncFolder] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    void syncApi.getFolder().then(setSyncFolder).catch(() => setSyncFolder(null));
+  }, []);
+
+  const chooseSyncFolder = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ directory: true, multiple: false });
+      if (typeof picked !== "string") return;
+      await syncApi.setFolder(picked);
+      setSyncFolder(picked);
+      pushToast({ message: "Đã bật đồng bộ 2 chiều", durationMs: 4000 });
+    } catch (e) {
+      pushToast({ message: `Không chọn được thư mục: ${e}`, durationMs: 5000 });
+    }
+  };
+
+  const disableSync = async () => {
+    try {
+      await syncApi.setFolder(null);
+      setSyncFolder(null);
+      pushToast({ message: "Đã tắt đồng bộ thư mục", durationMs: 4000 });
+    } catch (e) {
+      pushToast({ message: `Không tắt được đồng bộ: ${e}`, durationMs: 5000 });
+    }
+  };
 
   const openDataFolder = async () => {
     try {
@@ -135,6 +165,25 @@ function DataSection() {
           <SecondaryButton onClick={() => void openDataFolder()} disabled={!isTauri}>
             <FolderOpen size={14} aria-hidden="true" /> Mở thư mục
           </SecondaryButton>
+        </Row>
+        <Row
+          label="Đồng bộ thư mục"
+          description={
+            syncFolder
+              ? `Đang đồng bộ với ${syncFolder}`
+              : "Mirror 2 chiều với OneDrive / Google Drive — xung đột lấy bản mới hơn."
+          }
+        >
+          <span className="flex shrink-0 gap-2">
+            {syncFolder && (
+              <SecondaryButton destructive onClick={() => void disableSync()}>
+                Tắt
+              </SecondaryButton>
+            )}
+            <SecondaryButton onClick={() => void chooseSyncFolder()} disabled={!isTauri}>
+              <FolderSync size={14} aria-hidden="true" /> {syncFolder ? "Đổi thư mục" : "Chọn thư mục"}
+            </SecondaryButton>
+          </span>
         </Row>
         <Row label="Thùng rác" description="Ghi chú đã xóa được giữ lại để có thể khôi phục.">
           <SecondaryButton destructive onClick={() => setConfirmTrash(true)} disabled={!isTauri}>
