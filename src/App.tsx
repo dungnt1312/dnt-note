@@ -9,6 +9,7 @@ import { CommandPalette } from "./components/layout/CommandPalette";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { ChatPanel } from "./components/chat/ChatPanel";
 import { ensureLlmFetch } from "./components/settings/ProvidersSection";
+import { MediaLibrary } from "./components/media/MediaLibrary";
 import { Toast } from "./components/common/Toast";
 import { useNotesStore } from "./lib/store/notesStore";
 import { useChatStore } from "./lib/store/chatStore";
@@ -161,6 +162,7 @@ function Shell() {
         </>
       )}
       {section === "chat" && <ChatPanel variant="full" />}
+      {section === "media" && <MediaLibrary />}
       {section === "settings" && <SettingsPage />}
       <CommandPalette />
       <Toast />

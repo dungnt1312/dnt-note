@@ -57,6 +57,7 @@ export const sidebarDict = defineDict({
     "sidebar.movedToFolder": "Moved to “{name}”",
     "sidebar.moveFailed": "Could not move the note",
     "sidebar.sidebar": "Sidebar",
+    "sidebar.media": "Media library",
     "sidebar.settings": "Settings",
   },
   vi: {
@@ -115,6 +116,7 @@ export const sidebarDict = defineDict({
     "sidebar.movedToFolder": "Đã chuyển tới “{name}”",
     "sidebar.moveFailed": "Không thể chuyển ghi chú",
     "sidebar.sidebar": "Thanh bên",
+    "sidebar.media": "Thư viện Media",
     "sidebar.settings": "Cài đặt",
   },
 });

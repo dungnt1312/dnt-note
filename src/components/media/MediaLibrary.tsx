@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Upload } from "lucide-react";
 import { isTauri } from "../../lib/env";
 import { filterMedia, useMediaStore } from "../../lib/store/mediaStore";
@@ -14,6 +15,10 @@ export function MediaLibrary() {
   const query = useMediaStore((s) => s.query);
   const selectedName = useMediaStore((s) => s.selectedName);
   const select = useMediaStore((s) => s.select);
+
+  useEffect(() => {
+    void useMediaStore.getState().load();
+  }, []);
 
   const visible = filterMedia(items, filter, query);
   const selected = items.find((i) => i.name === selectedName) ?? null;

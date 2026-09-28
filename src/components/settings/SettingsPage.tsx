@@ -12,6 +12,7 @@ import { ContentHeader } from "../layout/ContentHeader";
 import { Keycap, SecondaryButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
 import { ProvidersSection } from "./ProvidersSection";
+import { SkillsSection } from "./SkillsSection";
 
 type TKey = Parameters<ReturnType<typeof useT>>[0];
 
@@ -295,11 +296,12 @@ function AboutSection() {
   );
 }
 
-type SettingsTab = "general" | "providers" | "data" | "shortcuts";
+type SettingsTab = "general" | "providers" | "skills" | "data" | "shortcuts";
 
 const TAB_IDS: { id: SettingsTab; labelKey: TKey }[] = [
   { id: "general", labelKey: "settings.tabGeneral" },
   { id: "providers", labelKey: "settings.tabProviders" },
+  { id: "skills", labelKey: "settings.tabSkills" },
   { id: "data", labelKey: "settings.tabData" },
   { id: "shortcuts", labelKey: "settings.tabShortcuts" },
 ];
@@ -344,6 +346,33 @@ function ProvidersPanel() {
   );
 }
 
+function SkillsPanel() {
+  const t = useT();
+  return (
+    <Section title={t("settings.tabSkills")} description={t("settings.skillsDescription")}>
+      <SkillsSection />
+    </Section>
+  );
+}
+
+/** Consent gate for on-device note embeddings used by semantic palette search. */
+function SemanticSection() {
+  const t = useT();
+  const semanticIndexing = useSettingsStore((s) => s.semanticIndexing);
+  const setSemanticIndexing = useSettingsStore((s) => s.setSemanticIndexing);
+  return (
+    <Section title={t("settings.semanticTitle")} description={t("settings.semanticDescription")}>
+      <RowGroup>
+        <Row label={t("settings.semanticToggleLabel")} description={t("settings.semanticToggleDesc")}>
+          <SecondaryButton onClick={() => void setSemanticIndexing(!semanticIndexing)}>
+            {semanticIndexing ? t("settings.semanticOn") : t("settings.semanticOff")}
+          </SecondaryButton>
+        </Row>
+      </RowGroup>
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const loaded = useSettingsStore((s) => s.loaded);
   const loadStore = useSettingsStore((s) => s.loadStore);
@@ -374,7 +403,13 @@ export function SettingsPage() {
                 <AboutSection />
               </>
             )}
-            {tab === "providers" && <ProvidersPanel />}
+            {tab === "providers" && (
+              <>
+                <ProvidersPanel />
+                <SemanticSection />
+              </>
+            )}
+            {tab === "skills" && <SkillsPanel />}
             {tab === "data" && <DataSection />}
             {tab === "shortcuts" && <ShortcutsSection />}
           </div>

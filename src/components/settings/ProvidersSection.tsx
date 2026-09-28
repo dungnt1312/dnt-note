@@ -219,6 +219,28 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
             </button>
           </div>
         </Field>
+        <Field label={t("settings.embeddingModelLabel")} htmlFor={id("emb")}>
+          <input
+            id={id("emb")}
+            value={provider.embeddingModel ?? ""}
+            onChange={(e) => void upsert(provider.id, { embeddingModel: e.target.value.trim() || undefined })}
+            className={input}
+            placeholder={t("settings.embeddingModelPlaceholder")}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label={t("settings.transcriptionModelLabel")} htmlFor={id("stt")}>
+          <input
+            id={id("stt")}
+            value={provider.transcriptionModel ?? ""}
+            onChange={(e) => void upsert(provider.id, { transcriptionModel: e.target.value.trim() || undefined })}
+            className={input}
+            placeholder={t("settings.transcriptionModelPlaceholder")}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </Field>
       </div>
 
       <div className="mt-3">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   FileText,
+  Images,
   MessageSquare,
   MoreHorizontal,
   PanelLeft,
@@ -370,6 +371,12 @@ export function Sidebar() {
       {workspace === "chat" ? <SessionsPane /> : <NotesPane />}
 
       <div className="border-t border-hairline p-2">
+        <SidebarRow selected={section === "media"} onSelect={() => setSection("media")}>
+          <span className="flex items-center gap-2.5 py-0.5">
+            <Images size={15} aria-hidden="true" className="text-fg-secondary" />
+            <span className="flex-1 text-callout font-medium text-fg">{t("sidebar.media")}</span>
+          </span>
+        </SidebarRow>
         <SidebarRow selected={section === "settings"} onSelect={() => setSection("settings")}>
           <span className="flex items-center gap-2.5 py-0.5">
             <Settings size={15} aria-hidden="true" className="text-fg-secondary" />

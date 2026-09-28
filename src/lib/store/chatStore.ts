@@ -3,6 +3,7 @@ import { getT } from "../i18n";
 import { runAgent, buildSystemPrompt, type AgentEvent } from "../agent/engine";
 import { useSettingsStore } from "./settingsStore";
 import { useNotesStore } from "./notesStore";
+import { useSkillsStore } from "./skillsStore";
 import { useUi } from "./uiStore";
 import { api, type ChatAttachmentDto, type ChatMentionDto, type ChatSessionDto, type ChatMetaDto } from "../api/chats";
 import { api as notesApi } from "../api/notes";
@@ -476,7 +477,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       await runAgent({
         provider,
         messages: [...history, requestUser],
-        systemPrompt: buildSystemPrompt(stats, selectedId, selectedTitle),
+        systemPrompt: buildSystemPrompt(
+          stats,
+          selectedId,
+          selectedTitle,
+          // Enabled skills are advertised by name; the model loads bodies via load_skill.
+          useSkillsStore.getState().skills
+            .filter((s) => s.enabled)
+            .map((s) => ({ name: s.name, description: s.description })),
+        ),
         signal: controller.signal,
         onEvent: handleEvent,
       });

@@ -68,16 +68,6 @@ fn get_sync_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
     }
 }
 
-fn set_sync_dir_value(app: &AppHandle, path: Option<&str>) {
-    if let Some(store) = settings_store(app) {
-        match path {
-            Some(p) => store.set("syncFolder", p),
-            None => store.set("syncFolder", serde_json::Value::Null),
-        }
-        let _ = store.save();
-    }
-}
-
 /// Run a two-way mirror between notes dir and sync folder; report failures
 /// to the frontend as events (never crash the watcher thread).
 fn do_sync(app: &AppHandle) {

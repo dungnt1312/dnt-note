@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FileText,
+  Images,
   MessageSquare,
   Monitor,
   Moon,
@@ -15,16 +16,19 @@ import {
 import { api } from "../../lib/api/notes";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useChatStore } from "../../lib/store/chatStore";
+import { useSettingsStore } from "../../lib/store/settingsStore";
 import { useUi } from "../../lib/store/uiStore";
 import { useTheme } from "../theme/ThemeProvider";
 import { fuzzyRank } from "../../lib/fuzzy";
 import { shortDate } from "../../lib/dates";
+import { semanticSearch, type SemanticResult } from "../../lib/semantic";
+import { isTauri } from "../../lib/env";
 import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { Keycap } from "../ui/Button";
 import { ConfirmDialog, Overlay } from "../ui/Dialog";
 
-type PaletteGroup = "commands" | "recentNotes" | "notes" | "chats";
+type PaletteGroup = "commands" | "recentNotes" | "notes" | "semantic" | "chats";
 
 interface PaletteItem {
   id: string;
@@ -49,6 +53,7 @@ export function CommandPalette() {
     commands: t("app.groupCommands"),
     recentNotes: t("app.groupRecentNotes"),
     notes: t("app.groupNotes"),
+    semantic: t("app.groupSemantic"),
     chats: t("app.groupChats"),
   };
 
@@ -62,7 +67,27 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [semanticHits, setSemanticHits] = useState<SemanticResult[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Debounced semantic search — only when the user consented to indexing.
+  useEffect(() => {
+    const q = query.trim();
+    if (!isTauri || q.length < 2 || !useSettingsStore.getState().semanticIndexing) {
+      setSemanticHits([]);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      semanticSearch(q, 5)
+        .then((r) => alive && setSemanticHits(r))
+        .catch(() => alive && setSemanticHits([]));
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   const close = () => {
     setOpen(false);
@@ -82,6 +107,7 @@ export function CommandPalette() {
       } },
       { id: "go-notes", group: "commands", label: t("app.cmdGoNotes"), shortcut: "Ctrl 1", icon: <FileText size={15} />, run: () => setSection("notes") },
       { id: "go-chat", group: "commands", label: t("app.cmdGoChat"), shortcut: "Ctrl 2", icon: <Sparkles size={15} />, run: () => setSection("chat") },
+      { id: "go-media", group: "commands", label: t("app.cmdMediaLibrary"), icon: <Images size={15} />, run: () => setSection("media") },
       { id: "side-chat", group: "commands", label: t("app.cmdChatDocked"), shortcut: "Ctrl ⇧ J", icon: <Sparkles size={15} />, run: () => {
         setSection("notes");
         setChatOpen(true);
@@ -121,8 +147,22 @@ export function CommandPalette() {
           setSection("chat");
         },
       }));
-    return [...cmd, ...noteItems, ...chatItems];
-  }, [query, notes, sessions, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme, t]);
+    const noteIds = new Set(noteItems.map((n) => n.id.slice(5)));
+    const semanticItems = (q
+      ? semanticHits.filter((h) => !noteIds.has(h.id)).map<PaletteItem>((h) => ({
+          id: `sem-${h.id}`,
+          group: "semantic",
+          label: h.title || t("app.untitled"),
+          detail: `${Math.round(h.score * 100)}%`,
+          icon: <Search size={15} />,
+          run: () => {
+            setSection("notes");
+            void select(h.id);
+          },
+        }))
+      : []);
+    return [...cmd, ...noteItems, ...semanticItems, ...chatItems];
+  }, [query, notes, sessions, semanticHits, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme, t]);
 
   useEffect(() => setCursor(0), [query]);
 

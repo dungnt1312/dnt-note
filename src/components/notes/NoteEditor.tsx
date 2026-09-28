@@ -5,6 +5,7 @@ import {
   Copy,
   FileDown,
   FileText,
+  History,
   MoreHorizontal,
   Paperclip,
   Pin,
@@ -12,6 +13,7 @@ import {
   Sparkles,
   SquarePen,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import { useT, localeTag } from "../../lib/i18n";
 import { useNotesStore } from "../../lib/store/notesStore";
@@ -31,6 +33,10 @@ import { TagStrip } from "./TagStrip";
 import { FormatBar } from "./FormatBar";
 import { EditorContextMenu } from "./EditorContextMenu";
 import { useDeleteNote } from "./useDeleteNote";
+import { Backlinks } from "./Backlinks";
+import { HistoryDialog } from "./HistoryDialog";
+import { SuggestDialog } from "./SuggestDialog";
+import { VoiceRecorder } from "./VoiceRecorder";
 
 /** "✦ Trợ lý" capsule that docks the assistant panel next to the editor. */
 export function AssistantToggle() {
@@ -112,6 +118,8 @@ export function NoteEditor() {
   const editorHost = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<EditorView | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
 
@@ -284,6 +292,12 @@ export function NoteEditor() {
               <MenuItem icon={<FileDown size={14} />} disabled={!isTauri} onSelect={() => void exportPdf()}>
                 {t("notes.exportPdf")}
               </MenuItem>
+              <MenuItem icon={<History size={14} />} disabled={!isTauri} onSelect={() => setHistoryOpen(true)}>
+                {t("notes.historyMenuItem")}
+              </MenuItem>
+              <MenuItem icon={<Wand2 size={14} />} disabled={!isTauri} onSelect={() => setSuggestOpen(true)}>
+                {t("notes.suggestMenuItem")}
+              </MenuItem>
               <MenuSeparator />
               <MenuLabel>
                 {t("notes.createdLabel", { created: fullDateTime(note.created), stats: wordStats(body, t) })}
@@ -293,6 +307,7 @@ export function NoteEditor() {
                 {t("notes.deleteNote")}
               </MenuItem>
             </Menu>
+            <VoiceRecorder view={view} noteId={note.id} />
             <AssistantToggle />
           </>
         }
@@ -325,6 +340,7 @@ export function NoteEditor() {
             <TagStrip tags={note.tags} onChange={(tags) => void setTags(note.id, tags)} />
           </div>
           <div ref={editorHost} onContextMenu={openContextMenu} />
+          {isTauri && <Backlinks noteId={note.id} />}
         </div>
       </div>
 
@@ -337,6 +353,17 @@ export function NoteEditor() {
           onSelection={sendSelectionToAssistant}
           onWholeNote={askAssistantAboutNote}
           onCopy={copySelection}
+        />
+      )}
+
+      {historyOpen && <HistoryDialog noteId={note.id} onClose={() => setHistoryOpen(false)} />}
+      {suggestOpen && (
+        <SuggestDialog
+          noteId={note.id}
+          title={note.title}
+          body={body}
+          tags={note.tags}
+          onClose={() => setSuggestOpen(false)}
         />
       )}
     </main>

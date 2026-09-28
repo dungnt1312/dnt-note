@@ -32,7 +32,10 @@ interface SettingsState {
   loaded: boolean;
   loadStore: () => Promise<void>;
   addProvider: (p: Omit<LlmProvider, "id" | "models"> & { models?: string[] }) => Promise<void>;
-  upsertProvider: (id: string, patch: Partial<Pick<LlmProvider, "name" | "baseUrl" | "apiKey" | "model">>) => Promise<void>;
+  upsertProvider: (
+    id: string,
+    patch: Partial<Pick<LlmProvider, "name" | "baseUrl" | "apiKey" | "model" | "embeddingModel" | "transcriptionModel">>,
+  ) => Promise<void>;
   /** Replace the saved models; if the current model was dropped, the first one takes over. */
   setModels: (id: string, models: string[]) => Promise<void>;
   /** Chat with `model` of provider `id` (the provider becomes active). */

@@ -65,8 +65,8 @@ export const useUi = create<UiState>()((set, get) => ({
     set({
       section,
       settingsOpen: section === "settings",
-      // Settings keeps whichever list the sidebar was showing.
-      ...(section === "settings" ? {} : { workspace: section }),
+      // Settings and media keep whichever list the sidebar was showing.
+      ...(section === "settings" || section === "media" ? {} : { workspace: section }),
     });
   },
   toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
