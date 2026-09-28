@@ -1,4 +1,5 @@
 import { Copy, Sparkles } from "lucide-react";
+import { useT } from "../../lib/i18n";
 import { ContextMenu } from "../ui/ContextMenu";
 import { MenuItem } from "../ui/Menu";
 
@@ -7,7 +8,7 @@ interface EditorContextMenuProps {
   y: number;
   hasSelection: boolean;
   onClose: () => void;
-  /** "Gửi vào Trợ lý AI" — attach the selection as a virtual snippet. */
+  /** "Gửi vào Trợ lý AI" — attach the selection as a stored snippet document. */
   onSelection: () => void;
   /** "Hỏi AI về ghi chú này" — insert the whole note as an @token. */
   onWholeNote: () => void;
@@ -25,20 +26,21 @@ export function EditorContextMenu({
   onWholeNote,
   onCopy,
 }: EditorContextMenuProps) {
+  const t = useT();
   return (
     <ContextMenu x={x} y={y} onClose={onClose}>
       {hasSelection ? (
         <>
           <MenuItem icon={<Sparkles size={14} />} onSelect={onSelection}>
-            Gửi vào Trợ lý AI
+            {t("notes.sendToAssistant")}
           </MenuItem>
           <MenuItem icon={<Copy size={14} />} onSelect={onCopy}>
-            Sao chép
+            {t("notes.copy")}
           </MenuItem>
         </>
       ) : (
         <MenuItem icon={<Sparkles size={14} />} onSelect={onWholeNote}>
-          Hỏi AI về ghi chú này
+          {t("notes.askAboutNote")}
         </MenuItem>
       )}
     </ContextMenu>

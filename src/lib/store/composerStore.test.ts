@@ -107,34 +107,182 @@ describe("stripForPersist", () => {
     expect(atts).toHaveLength(1);
     expect(atts[0]).not.toHaveProperty("previewUrl");
   });
+
+  it("drops transient document text when a stored reference exists", () => {
+    const out = stripForPersist({
+      c1: {
+        editorJson: null,
+        text: "",
+        attachments: [{
+          id: "d1",
+          name: "uuid-chat-snippet.md",
+          originalName: "selection.md",
+          size: 4,
+          kind: "document",
+          status: "ready",
+          text: "private body",
+        }],
+      },
+    });
+    expect(out.c1!.attachments[0]).not.toHaveProperty("text");
+    expect(out.c1!.attachments[0]!.name).toBe("uuid-chat-snippet.md");
+  });
 });
 
-describe("addSnippet (virtual document attachment)", () => {
-  it("appends a ready document without touching the filesystem", () => {
-    useComposerStore.getState().addSnippet("c1", { originalName: "Ghi chú A (đoạn chọn).md", text: "nội dung" });
+describe("addSnippet (durable document attachment)", () => {
+  it("imports UTF-8 markdown bytes and stores a durable attachment name", async () => {
+    invoke.mockResolvedValueOnce({ name: "uuid-chat-snippet.md", size: 12, path: "C:/att/uuid-chat-snippet.md" });
+
+    await useComposerStore.getState().addSnippet("c1", {
+      originalName: "Ghi chú A (đoạn chọn).md",
+      text: "nội dung",
+    });
+
     const a = useComposerStore.getState().drafts.c1!.attachments[0]!;
     expect(a).toMatchObject({
-      name: "",
+      name: "uuid-chat-snippet.md",
       originalName: "Ghi chú A (đoạn chọn).md",
+      size: 12,
       kind: "document",
       status: "ready",
       text: "nội dung",
     });
-    expect(a.size).toBe("nội dung".length);
-    expect(invoke).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith("import_attachment_bytes", {
+      fileName: "chat-snippet.md",
+      bytes: Array.from(new TextEncoder().encode("nội dung")),
+    });
   });
 
-  it("replaces an identical snippet instead of duplicating", () => {
+  it("does not import an identical durable snippet twice", async () => {
+    invoke.mockResolvedValueOnce({ name: "uuid-chat-snippet.md", size: 4, path: "C:/att/uuid-chat-snippet.md" });
     const s = useComposerStore.getState();
-    s.addSnippet("c1", { originalName: "a.md", text: "same" });
-    s.addSnippet("c1", { originalName: "a.md", text: "same" });
+    await s.addSnippet("c1", { originalName: "a.md", text: "same" });
+    await s.addSnippet("c1", { originalName: "a.md", text: "same" });
     expect(useComposerStore.getState().drafts.c1!.attachments).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
-  it("clips text at 20k like real document extracts", () => {
-    useComposerStore.getState().addSnippet("c1", { originalName: "a.md", text: "x".repeat(30_000) });
-    expect(useComposerStore.getState().drafts.c1!.attachments[0]!.text).toHaveLength(20_000);
+  it("deduplicates identical snippets while the first import is in flight", async () => {
+    let resolveImport!: (value: { name: string; size: number; path: string }) => void;
+    invoke.mockImplementationOnce(() => new Promise((resolve) => { resolveImport = resolve; }));
+    const s = useComposerStore.getState();
+
+    const first = s.addSnippet("c1", { originalName: "a.md", text: "same" });
+    const second = s.addSnippet("c1", { originalName: "a.md", text: "same" });
+    expect(useComposerStore.getState().drafts.c1!.attachments).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    resolveImport({ name: "uuid-chat-snippet.md", size: 4, path: "C:/att/uuid-chat-snippet.md" });
+    await Promise.all([first, second]);
   });
+
+  it("does not recreate a removed or cleared draft after import completes", async () => {
+    const resolvers: ((value: { name: string; size: number; path: string }) => void)[] = [];
+    invoke.mockImplementation(() => new Promise((resolve) => { resolvers.push(resolve); }));
+    const store = useComposerStore.getState();
+
+    const removedImport = store.addSnippet("c1", { originalName: "remove.md", text: "remove" });
+    const removedId = useComposerStore.getState().drafts.c1!.attachments[0]!.id;
+    store.removeAttachment("c1", removedId);
+    resolvers[0]!({ name: "uuid-remove.md", size: 6, path: "C:/att/uuid-remove.md" });
+    await removedImport;
+    expect(useComposerStore.getState().drafts.c1!.attachments).toEqual([]);
+
+    const clearedImport = store.addSnippet("c2", { originalName: "clear.md", text: "clear" });
+    store.clearDraft("c2");
+    resolvers[1]!({ name: "uuid-clear.md", size: 5, path: "C:/att/uuid-clear.md" });
+    await clearedImport;
+    expect(useComposerStore.getState().drafts.c2).toBeUndefined();
+  });
+
+  it("clips persisted snippet text at 20k without splitting a surrogate pair", async () => {
+    invoke.mockResolvedValueOnce({ name: "uuid-chat-snippet.md", size: 20_002, path: "C:/att/uuid-chat-snippet.md" });
+    await useComposerStore.getState().addSnippet("c1", {
+      originalName: "a.md",
+      text: `${"x".repeat(19_999)}😀tail`,
+    });
+    const text = useComposerStore.getState().drafts.c1!.attachments[0]!.text!;
+    expect([...text]).toHaveLength(20_000);
+    expect(text.endsWith("😀")).toBe(true);
+    expect(text).not.toContain("�");
+    const [, args] = invoke.mock.calls[0]!;
+    expect(new TextDecoder().decode(new Uint8Array((args as { bytes: number[] }).bytes))).toBe(text);
+  });
+
+  it("marks a snippet as error when its durable import fails", async () => {
+    invoke.mockRejectedValueOnce(new Error("disk full"));
+    await useComposerStore.getState().addSnippet("c1", { originalName: "a.md", text: "same" });
+    expect(useComposerStore.getState().drafts.c1!.attachments[0]).toMatchObject({
+      name: "",
+      status: "error",
+      error: "disk full",
+    });
+  });
+
+  it("persists the durable snippet reference without its inline text requirement", async () => {
+    invoke.mockResolvedValueOnce({ name: "uuid-chat-snippet.md", size: 4, path: "C:/att/uuid-chat-snippet.md" });
+    await useComposerStore.getState().addSnippet("c1", { originalName: "a.md", text: "same" });
+    const out = stripForPersist(useComposerStore.getState().drafts);
+    expect(out.c1!.attachments[0]).toMatchObject({ name: "uuid-chat-snippet.md", status: "ready" });
+    expect(out.c1!.attachments[0]).not.toHaveProperty("text");
+  });
+
+  it("materializes a legacy ready snippet that has text but no stored name", async () => {
+    useComposerStore.setState({
+      drafts: {
+        c1: {
+          editorJson: null,
+          text: "",
+          attachments: [{
+            id: "legacy",
+            name: "",
+            originalName: "a.md",
+            size: 4,
+            kind: "document",
+            status: "ready",
+            text: "same",
+          }],
+        },
+      },
+    });
+    invoke.mockResolvedValueOnce({ name: "uuid-chat-snippet.md", size: 4, path: "C:/att/uuid-chat-snippet.md" });
+
+    await useComposerStore.getState().addSnippet("c1", { originalName: "a.md", text: "same" });
+
+    expect(invoke).toHaveBeenCalledWith("import_attachment_bytes", {
+      fileName: "chat-snippet.md",
+      bytes: Array.from(new TextEncoder().encode("same")),
+    });
+    expect(useComposerStore.getState().drafts.c1!.attachments).toContainEqual(
+      expect.objectContaining({ name: "uuid-chat-snippet.md", status: "ready", text: "same" }),
+    );
+  });
+});
+
+it("restores persisted attachment transient data from stored names", async () => {
+  useComposerStore.setState({
+    drafts: {
+      c1: {
+        editorJson: null,
+        text: "",
+        attachments: [
+          { id: "i1", name: "u.png", originalName: "x.png", size: 3, kind: "image", status: "ready" },
+          { id: "d1", name: "d.md", originalName: "d.md", size: 4, kind: "document", status: "ready" },
+        ],
+      },
+    },
+  });
+  invoke
+    .mockResolvedValueOnce("data:image/png;base64,RESTORED")
+    .mockResolvedValueOnce("restored document");
+
+  await useComposerStore.getState().restoreDraftAttachments("c1");
+
+  const attachments = useComposerStore.getState().drafts.c1!.attachments;
+  expect(attachments[0]).toMatchObject({ previewUrl: "data:image/png;base64,RESTORED", status: "ready" });
+  expect(attachments[1]).toMatchObject({ text: "restored document", status: "ready" });
+  expect(invoke).toHaveBeenNthCalledWith(1, "prepare_attachment_image", { path: "u.png" });
+  expect(invoke).toHaveBeenNthCalledWith(2, "extract_attachment_text", { path: "d.md" });
 });
 
 describe("chat context bridge", () => {

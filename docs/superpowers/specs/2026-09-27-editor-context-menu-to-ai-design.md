@@ -4,12 +4,12 @@ Ngày: 2026-09-27 · Trạng thái: Đã duyệt (user chốt hướng "đính k
 
 ## Mục tiêu
 
-Chuột phải vào vùng soạn thảo note → menu ngữ cảnh tại con trỏ → đưa ngữ cảnh (đoạn đang chọn hoặc cả note) vào panel Trợ lý AI đang có. **Không định nghĩa sẵn action AI nào** (review/đề xuất/dịch…): sau khi ngữ cảnh được đính kèm, người dùng tự gõ prompt tuỳ ý và gửi. Streaming, agent, tools, persistence, abort — tái dùng 100% cơ chế chat hiện có, không đụng backend.
+Chuột phải vào vùng soạn thảo note → menu ngữ cảnh tại con trỏ → đưa ngữ cảnh (đoạn đang chọn hoặc cả note) vào panel Trợ lý AI đang có. **Không định nghĩa sẵn action AI nào** (review/đề xuất/dịch…): sau khi ngữ cảnh được đính kèm, người dùng tự gõ prompt tuỳ ý và gửi. Streaming, agent, tools, persistence và abort tái dùng cơ chế chat hiện có; snippet dùng attachment backend hiện có để tồn tại qua reload mà không cần đổi schema.
 
 ## Hành vi
 
 - **Có selection** → menu: `Gửi vào Trợ lý AI` + `Sao chép`.
-  - "Gửi vào Trợ lý AI": đoạn chọn thành **attachment ảo** (chip trong AttachmentTray), mở ChatPanel docked nếu chưa mở, focus ô nhập. Không tự gửi.
+  - "Gửi vào Trợ lý AI": đoạn chọn thành **document attachment** (chip trong AttachmentTray), được lưu bằng attachment backend để có thể tái dựng sau reload; mở ChatPanel docked nếu chưa mở, focus ô nhập. Không tự gửi.
   - "Sao chép": copy đoạn chọn (bù cho menu native vừa bị chặn).
 - **Không có selection** → menu: `Hỏi AI về ghi chú này`.
   - Mở chat (nếu chưa mở) + chèn token `@«tên note»` (ContextTokenNode) vào composer + focus. Body note đi vào context qua cơ chế mention có sẵn (budget 8k/note).
@@ -33,12 +33,12 @@ Component nhận `{x, y, hasSelection, onSelection, onWholeNote, onClose}`; rend
 
 ### Sửa — `src/lib/store/composerStore.ts`
 
-- Action `addSnippet(chatId, { originalName, text })`: đẩy thẳng `DraftAttachment { id, name: "", originalName, size: text.length, kind: "document", status: "ready", text }` — **không ghi file, không qua import**. Gửi đi được ngay vì `buildRequestUserMessage` chỉ cần `originalName` + `text` (block `[File: …]`). Text clip ở `MAX_DOC_CHARS` (20k) giống đường document hiện có. Persist bình thường qua `stripForPersist`.
+- Action async `addSnippet(chatId, { originalName, text })`: clip text ở `MAX_DOC_CHARS` (20k), thêm placeholder `status: "importing"`, rồi ghi UTF-8 bytes qua `import_attachment_bytes` với basename an toàn `chat-snippet.md`. Khi thành công attachment giữ `stored.name`, `status: "ready"` và transient `text`; khi lỗi chuyển sang `status: "error"`. Stored name được persist, còn text được tái extract từ file sau reload.
 - Kênh bơm ngữ cảnh NoteEditor → Composer (2 cây anh em): `pendingContext: { kind: "snippet", title, text } | { kind: "note", noteId, title } | null` + `pushChatContext()` / `takeChatContext()`.
 
 ### Sửa — `Composer.tsx`
 
-- Effect theo dõi `pendingContext`: khi có → consume: `snippet` → `addSnippet(chatId, …)`; `note` → chèn `ContextTokenNode` vào Lexical editor (tại caret nếu có selection, ngược lại append cuối) rồi focus; clear pending. Dùng `$createContextTokenNode` có sẵn; phần chèn-at-end viết helper nhỏ cạnh `insertNoteTokenAtCaret` (file `ContextTokenNode.tsx`) vì `insertNoteTokenAtCaret` đòi collapsed selection.
+- Effect theo dõi `pendingContext`: khi có → consume: `snippet` → gọi async `addSnippet(chatId, …)`; `note` → chèn `ContextTokenNode` vào Lexical editor (tại caret nếu có selection, ngược lại append cuối) rồi focus; clear pending. Trong lúc bất kỳ attachment nào còn `importing`, cả nút gửi và submit bằng Enter đều bị chặn để context không bị bỏ sót.
 
 ## Xử lý lỗi / edge cases
 
@@ -46,11 +46,11 @@ Component nhận `{x, y, hasSelection, onSelection, onWholeNote, onClose}`; rend
 - Chưa cấu hình provider: menu không chặn — lỗi hiện tại banner error của chat khi gửi (hành vi sẵn có).
 - Chat đang mở sẵn: pendingContext được consume ngay (effect chạy cả khi Composer đã mount).
 - Section "chat" toàn màn hình: NoteEditor không hiển thị → không xảy ra.
-- Selection chỉ toàn khoảng trắng: vẫn coi là selection (text rỗng sau trim thì attachment ảo text rỗng → gửi kèm block `[File]` rỗng — chấp nhận, hiếm gặp).
+- Selection chỉ toàn khoảng trắng: vẫn coi là selection; nội dung được ghi thành document attachment và model nhận block `[File]` rỗng — chấp nhận, hiếm gặp.
 
 ## Testing (vitest, theo convention)
 
-- `composerStore.test.ts`: `addSnippet` → attachment ready + shape đúng; `pendingContext` push/take; `stripForPersist` giữ snippet.
+- `composerStore.test.ts`: `addSnippet` → import UTF-8 bytes, attachment có stored name, dedupe/error/clip đúng; `pendingContext` push/take; `stripForPersist` giữ reference.
 - `selection.ts`: có/không selection, text khớp `sliceDoc`.
 - `ContextMenu.test.tsx`: render tại tọa độ, Esc/click-outside đóng, item gọi callback.
 - `Composer.test.tsx` (mock store): pending snippet → chip trong tray; pending note → text editor chứa `@title`.

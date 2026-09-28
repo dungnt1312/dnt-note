@@ -14,6 +14,8 @@ import { useNotesStore } from "./lib/store/notesStore";
 import { useChatStore } from "./lib/store/chatStore";
 import { useSettingsStore } from "./lib/store/settingsStore";
 import { useUi } from "./lib/store/uiStore";
+import { getT } from "./lib/i18n";
+import { openNoteById } from "./lib/openNote";
 
 function useDeepLinkAndSync() {
   useEffect(() => {
@@ -21,10 +23,7 @@ function useDeepLinkAndSync() {
     const unlisten = listen<string>("deep-link://url", (event) => {
       // dntnote://note/<id>
       const m = /dntnote:\/\/note\/([\w-]+)/.exec(event.payload ?? "");
-      if (m) {
-        useUi.getState().setSection("notes");
-        void useNotesStore.getState().select(m[1]);
-      }
+      if (m) void openNoteById(m[1]);
     });
     const unlistenSync = listen<{ copiedOut: number; copiedIn: number; resolved: number }>(
       "sync://status",
@@ -32,7 +31,7 @@ function useDeepLinkAndSync() {
         const r = event.payload;
         if (!r) return;
         useUi.getState().pushToast({
-          message: `Đã đồng bộ · ↗ ${r.copiedOut} · ↙ ${r.copiedIn} · ✓ ${r.resolved}`,
+          message: getT()("app.syncToast", { out: r.copiedOut, in: r.copiedIn, resolved: r.resolved }),
           durationMs: 4000,
         });
       },

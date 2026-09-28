@@ -1,4 +1,5 @@
 import { FileText, ImageIcon, Loader2, X } from "lucide-react";
+import { useT } from "../../../lib/i18n";
 import type { DraftAttachment } from "../../../lib/store/composerStore";
 
 export function fmtSize(bytes: number): string {
@@ -9,6 +10,7 @@ export function fmtSize(bytes: number): string {
 
 /** Attachment cards inside the composer: preview/status/remove. */
 export function AttachmentTray({ items, onRemove }: { items: DraftAttachment[]; onRemove: (id: string) => void }) {
+  const t = useT();
   if (items.length === 0) return null;
   return (
     <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
@@ -36,13 +38,13 @@ export function AttachmentTray({ items, onRemove }: { items: DraftAttachment[]; 
               {a.status === "error"
                 ? a.error
                 : a.status === "importing"
-                  ? "Đang thêm…"
-                  : `${a.kind === "image" ? "Ảnh" : "Tài liệu"} · ${fmtSize(a.size)}`}
+                  ? t("chat.adding")
+                  : `${a.kind === "image" ? t("chat.image") : t("chat.document")} · ${fmtSize(a.size)}`}
             </span>
           </span>
           <button
             type="button"
-            aria-label={`Bỏ ${a.originalName}`}
+            aria-label={t("chat.removeAttachment", { name: a.originalName })}
             onClick={() => onRemove(a.id)}
             className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full text-fg-tertiary hover:bg-hover hover:text-fg"
           >

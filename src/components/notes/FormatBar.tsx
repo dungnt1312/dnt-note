@@ -20,6 +20,7 @@ import {
   toggleLinePrefix,
   toggleWrap,
 } from "../../lib/editor/formatting";
+import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { ToolbarDivider } from "../ui/Button";
 import { Menu, MenuItem } from "../ui/Menu";
@@ -60,50 +61,51 @@ interface FormatBarProps {
 
 /** Formatting toolbar: ¶ H1 H2 H3 | B I S | lists | quote link code ⋯ — stats on the right. */
 export function FormatBar({ view, stats }: FormatBarProps) {
+  const t = useT();
   const run = (build: Parameters<typeof applyFormat>[1]) => applyFormat(view, build);
   const text = "text-callout font-semibold";
   return (
-    <div role="toolbar" aria-label="Định dạng" className="flex h-10 shrink-0 items-center gap-0.5 px-3">
-      <ToolButton label="Đoạn văn (Ctrl+Alt+0)" className={text} onClick={() => run((s) => setHeading(s, 0))}>
+    <div role="toolbar" aria-label={t("notes.formatToolbar")} className="flex h-10 shrink-0 items-center gap-0.5 px-3">
+      <ToolButton label={t("notes.formatParagraph")} className={text} onClick={() => run((s) => setHeading(s, 0))}>
         ¶
       </ToolButton>
-      <ToolButton label="Tiêu đề 1 (Ctrl+Alt+1)" className={text} onClick={() => run((s) => setHeading(s, 1))}>
+      <ToolButton label={t("notes.formatHeading", { n: 1 })} className={text} onClick={() => run((s) => setHeading(s, 1))}>
         H1
       </ToolButton>
-      <ToolButton label="Tiêu đề 2 (Ctrl+Alt+2)" className={text} onClick={() => run((s) => setHeading(s, 2))}>
+      <ToolButton label={t("notes.formatHeading", { n: 2 })} className={text} onClick={() => run((s) => setHeading(s, 2))}>
         H2
       </ToolButton>
-      <ToolButton label="Tiêu đề 3 (Ctrl+Alt+3)" className={text} onClick={() => run((s) => setHeading(s, 3))}>
+      <ToolButton label={t("notes.formatHeading", { n: 3 })} className={text} onClick={() => run((s) => setHeading(s, 3))}>
         H3
       </ToolButton>
       <ToolbarDivider />
-      <ToolButton label="Đậm (Ctrl+B)" className="text-callout font-bold" onClick={() => run((s) => toggleWrap(s, "**"))}>
+      <ToolButton label={t("notes.formatBold")} className="text-callout font-bold" onClick={() => run((s) => toggleWrap(s, "**"))}>
         B
       </ToolButton>
-      <ToolButton label="Nghiêng (Ctrl+I)" className="font-serif text-[14px] italic" onClick={() => run((s) => toggleWrap(s, "*"))}>
+      <ToolButton label={t("notes.formatItalic")} className="font-serif text-[14px] italic" onClick={() => run((s) => toggleWrap(s, "*"))}>
         I
       </ToolButton>
-      <ToolButton label="Gạch ngang (Ctrl+Shift+X)" className="text-callout line-through" onClick={() => run((s) => toggleWrap(s, "~~"))}>
+      <ToolButton label={t("notes.formatStrikethrough")} className="text-callout line-through" onClick={() => run((s) => toggleWrap(s, "~~"))}>
         S
       </ToolButton>
       <ToolbarDivider />
-      <ToolButton label="Danh sách chấm" onClick={() => run((s) => toggleLinePrefix(s, "bullet"))}>
+      <ToolButton label={t("notes.formatBulletList")} onClick={() => run((s) => toggleLinePrefix(s, "bullet"))}>
         <List size={15} aria-hidden="true" />
       </ToolButton>
-      <ToolButton label="Danh sách số" onClick={() => run((s) => toggleLinePrefix(s, "numbered"))}>
+      <ToolButton label={t("notes.formatNumberedList")} onClick={() => run((s) => toggleLinePrefix(s, "numbered"))}>
         <ListOrdered size={15} aria-hidden="true" />
       </ToolButton>
-      <ToolButton label="Checklist" onClick={() => run((s) => toggleLinePrefix(s, "task"))}>
+      <ToolButton label={t("notes.formatChecklist")} onClick={() => run((s) => toggleLinePrefix(s, "task"))}>
         <ListChecks size={15} aria-hidden="true" />
       </ToolButton>
       <ToolbarDivider />
-      <ToolButton label="Trích dẫn" onClick={() => run((s) => toggleLinePrefix(s, "quote"))}>
+      <ToolButton label={t("notes.formatQuote")} onClick={() => run((s) => toggleLinePrefix(s, "quote"))}>
         <Quote size={14} aria-hidden="true" />
       </ToolButton>
-      <ToolButton label="Liên kết" onClick={() => run(insertLink)}>
+      <ToolButton label={t("notes.formatLink")} onClick={() => run(insertLink)}>
         <Link2 size={15} aria-hidden="true" />
       </ToolButton>
-      <ToolButton label="Mã inline (Ctrl+E)" onClick={() => run((s) => toggleWrap(s, "`"))}>
+      <ToolButton label={t("notes.formatInlineCode")} onClick={() => run((s) => toggleWrap(s, "`"))}>
         <Code size={15} aria-hidden="true" />
       </ToolButton>
       <Menu
@@ -113,8 +115,8 @@ export function FormatBar({ view, stats }: FormatBarProps) {
           <button
             type="button"
             {...p}
-            aria-label="Chèn thêm"
-            title="Chèn thêm"
+            aria-label={t("notes.insertMore")}
+            title={t("notes.insertMore")}
             className="flex h-7 w-[30px] items-center justify-center rounded-[7px] text-fg-secondary hover:bg-hover hover:text-fg"
           >
             <MoreHorizontal size={15} aria-hidden="true" />
@@ -122,13 +124,13 @@ export function FormatBar({ view, stats }: FormatBarProps) {
         )}
       >
         <MenuItem icon={<SquareCode size={14} />} onSelect={() => run((s) => insertBlock(s, "code"))}>
-          Khối mã
+          {t("notes.insertCodeBlock")}
         </MenuItem>
         <MenuItem icon={<Table size={14} />} onSelect={() => run((s) => insertBlock(s, "table"))}>
-          Bảng
+          {t("notes.insertTable")}
         </MenuItem>
         <MenuItem icon={<Minus size={14} />} onSelect={() => run((s) => insertBlock(s, "rule"))}>
-          Đường kẻ ngang
+          {t("notes.insertRule")}
         </MenuItem>
       </Menu>
       <span className="ml-auto truncate pl-3 text-footnote tabular-nums text-fg-tertiary">{stats}</span>

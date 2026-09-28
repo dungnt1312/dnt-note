@@ -58,9 +58,13 @@ describe("buildUserContent", () => {
     expect(out).toBe("q\n\n[File: d.pdf]\n---\nabc");
   });
 
-  it("caps document text at MAX_DOC_CHARS", () => {
-    const out = buildUserContent("q", [], [doc({ text: "y".repeat(MAX_DOC_CHARS + 500) })]);
-    expect(out).toHaveLength("q".length + "\n\n[File: d.pdf]\n---\n".length + MAX_DOC_CHARS + 1);
+  it("caps document text at MAX_DOC_CHARS without splitting surrogate pairs", () => {
+    const body = `${"y".repeat(MAX_DOC_CHARS - 1)}😀tail`;
+    const out = buildUserContent("q", [], [doc({ text: body })]);
+    const extracted = out.split("---\n")[1]!.replace(/…$/, "");
+    expect([...extracted]).toHaveLength(MAX_DOC_CHARS);
+    expect(extracted.endsWith("😀")).toBe(true);
+    expect(extracted).not.toContain("�");
   });
 });
 

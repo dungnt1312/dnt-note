@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, Loader2, Plus, Search } from "lucide-react";
 import { fuzzyRank } from "../../lib/fuzzy";
 import { mergeModelLists } from "../../lib/llm/models";
+import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { PillButton, SecondaryButton } from "../ui/Button";
 import { Overlay } from "../ui/Dialog";
@@ -19,8 +20,9 @@ interface ModelPickerDialogProps {
 
 /** Tick any number of models from the provider's list, or type a name to add one by hand. */
 export function ModelPickerDialog({ open, providerName, onClose, ...rest }: ModelPickerDialogProps) {
+  const t = useT();
   return (
-    <Overlay open={open} onClose={onClose} label={`Chọn model cho ${providerName}`} placement="top" className="w-[520px]">
+    <Overlay open={open} onClose={onClose} label={t("settings.pickerOverlayLabel", { name: providerName })} placement="top" className="w-[520px]">
       <PickerBody providerName={providerName} onClose={onClose} {...rest} />
     </Overlay>
   );
@@ -30,6 +32,7 @@ type FetchState = { kind: "loading" } | { kind: "ok"; models: string[] } | { kin
 type Row = { kind: "model" | "add"; name: string };
 
 function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<ModelPickerDialogProps, "open">) {
+  const t = useT();
   const [fetchState, setFetchState] = useState<FetchState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [picked, setPicked] = useState<string[]>(saved);
@@ -88,10 +91,10 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
   return (
     <>
       <div className="px-4 pb-3 pt-4">
-        <h2 className="text-headline font-semibold text-fg">Chọn model</h2>
+        <h2 className="text-headline font-semibold text-fg">{t("settings.pickerTitle")}</h2>
         <p className="mt-0.5 text-footnote text-fg-secondary">
           {providerName}
-          {fetchedCount !== null && ` · ${fetchedCount} model có sẵn`}
+          {fetchedCount !== null && ` ${t("settings.modelsAvailable", { count: fetchedCount })}`}
         </p>
       </div>
       <div className="mx-4 mb-3 flex h-9 items-center gap-2 rounded-sm border border-hairline bg-app px-3 focus-within:border-fg-tertiary">
@@ -112,8 +115,8 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
               if (row) activate(row);
             }
           }}
-          placeholder="Tìm hoặc nhập tên model…"
-          aria-label="Tìm hoặc nhập tên model"
+          placeholder={t("settings.searchModelPlaceholder")}
+          aria-label={t("settings.searchModelLabel")}
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}
@@ -127,13 +130,13 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
 
       {fetchState.kind === "loading" && (
         <p className="flex items-center gap-2 px-4 pt-3 text-footnote text-fg-secondary">
-          <Loader2 size={13} aria-hidden="true" className="animate-spin" /> Đang tải danh sách model…
+          <Loader2 size={13} aria-hidden="true" className="animate-spin" /> {t("settings.loadingModels")}
         </p>
       )}
       {fetchState.kind === "fail" && (
         <div role="alert" className="mx-3 mt-3 flex items-start gap-3 rounded-sm border border-danger-border bg-danger-fill px-3 py-2">
           <p className="min-w-0 flex-1 break-words text-footnote text-fg">
-            Không tải được danh sách model: {fetchState.message}. Bạn vẫn có thể gõ tên model để thêm.
+            {t("settings.loadModelsError", { message: fetchState.message })}
           </p>
           <SecondaryButton
             className="h-7 shrink-0 px-3"
@@ -142,7 +145,7 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
               setAttempt((n) => n + 1);
             }}
           >
-            Thử lại
+            {t("settings.retry")}
           </SecondaryButton>
         </div>
       )}
@@ -156,7 +159,7 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
         className="max-h-[min(340px,calc(100vh-360px))] min-h-[96px] overflow-y-auto p-1.5"
       >
         {rows.length === 0 && fetchState.kind !== "loading" && (
-          <p className="py-7 text-center text-callout text-fg-secondary">Chưa có model nào — gõ tên model để thêm</p>
+          <p className="py-7 text-center text-callout text-fg-secondary">{t("settings.noModels")}</p>
         )}
         {rows.map((row, i) => {
           const checked = row.kind === "model" && picked.includes(row.name);
@@ -188,7 +191,7 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
                 <Plus size={15} aria-hidden="true" className="shrink-0 text-fg-secondary" />
               )}
               <span className="min-w-0 flex-1 truncate text-callout text-fg">
-                {row.kind === "add" ? `Thêm “${row.name}”` : row.name}
+                {row.kind === "add" ? t("settings.addModel", { name: row.name }) : row.name}
               </span>
             </button>
           );
@@ -198,11 +201,11 @@ function PickerBody({ providerName, saved, loadModels, onSave, onClose }: Omit<M
       <div className="h-px bg-hairline" />
       <div className="flex items-center gap-2 px-4 py-3">
         <span aria-live="polite" className="flex-1 text-footnote text-fg-secondary">
-          Đã chọn {picked.length} model
+          {t("settings.selectedCount", { count: picked.length })}
         </span>
-        <SecondaryButton onClick={onClose}>Hủy</SecondaryButton>
+        <SecondaryButton onClick={onClose}>{t("settings.cancel")}</SecondaryButton>
         <PillButton className="h-8 px-3.5" onClick={() => onSave(picked)}>
-          Lưu
+          {t("settings.save")}
         </PillButton>
       </div>
     </>

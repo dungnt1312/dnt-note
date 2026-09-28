@@ -27,7 +27,8 @@ export interface AttachmentInput {
 
 function clip(text: string, max: number, budget: number): { body: string; truncated: boolean } {
   const limit = Math.min(max, Math.max(0, budget));
-  return { body: text.slice(0, limit), truncated: text.length > limit };
+  const codePoints = Array.from(text);
+  return { body: codePoints.slice(0, limit).join(""), truncated: codePoints.length > limit };
 }
 
 /** Visible text + hidden context blocks (mentions and document extracts). */

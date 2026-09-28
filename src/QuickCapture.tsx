@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api/notes";
+import { BrandMark } from "./components/common/BrandMark";
+import { useT } from "./lib/i18n";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /** Tiny always-on-top capture window (Ctrl+Shift+N). Enter saves, Esc hides. */
 export default function QuickCapture() {
+  const t = useT();
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -49,9 +52,10 @@ export default function QuickCapture() {
     <div className="box-border flex h-screen w-screen flex-col overflow-hidden rounded-md border border-composer-border bg-popover">
       <div data-tauri-drag-region className="flex cursor-move items-center justify-between px-4 pt-3 text-footnote">
         <span data-tauri-drag-region className="font-semibold text-fg">
-          Ghi nhanh
+          {t("app.quickTitle")}
         </span>
-        <span data-tauri-drag-region className="text-fg-tertiary">
+        <span data-tauri-drag-region className="flex items-center gap-1.5 text-fg-tertiary">
+          <BrandMark size={14} />
           DNT Note
         </span>
       </div>
@@ -69,20 +73,20 @@ export default function QuickCapture() {
             hide();
           }
         }}
-        placeholder="Bạn đang nghĩ gì?"
-        aria-label="Nội dung ghi nhanh"
+        placeholder={t("app.quickPlaceholder")}
+        aria-label={t("app.quickInputLabel")}
         className="flex-1 resize-none bg-transparent px-4 py-2 text-body text-fg outline-none"
       />
       <div aria-live="polite" className="flex items-center gap-3 px-4 pb-3 text-caption text-fg-tertiary">
         {saving ? (
-          "Đang lưu…"
+          t("app.quickSaving")
         ) : (
           <>
             <span>
-              <kbd className="font-sans font-medium">Enter</kbd> lưu thành ghi chú #quick
+              <kbd className="font-sans font-medium">Enter</kbd> {t("app.quickSaveHint")}
             </span>
             <span>
-              <kbd className="font-sans font-medium">Esc</kbd> ẩn
+              <kbd className="font-sans font-medium">Esc</kbd> {t("app.quickHideHint")}
             </span>
           </>
         )}

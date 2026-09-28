@@ -21,6 +21,7 @@ export interface ChatMessageDto {
   mentions?: ChatMentionDto[];
   attachments?: ChatAttachmentDto[];
   error?: string;
+  pendingDeletes?: { id: string; title: string; status: "pending" | "confirmed" | "cancelled" }[];
   toolCalls?: unknown;
   toolCallId?: string;
   name?: string;

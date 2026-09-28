@@ -6,11 +6,14 @@ import { useUi } from "../../lib/store/uiStore";
 import { useSettingsStore } from "../../lib/store/settingsStore";
 import { isTauri } from "../../lib/env";
 import { cn } from "../../lib/utils";
+import { useLangStore, useT, type Lang } from "../../lib/i18n";
 import { useTheme, type Theme } from "../theme/ThemeProvider";
 import { ContentHeader } from "../layout/ContentHeader";
 import { Keycap, SecondaryButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
 import { ProvidersSection } from "./ProvidersSection";
+
+type TKey = Parameters<ReturnType<typeof useT>>[0];
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -66,14 +69,15 @@ function ThemePreview({ dark }: { dark: boolean }) {
 
 function AppearanceSection() {
   const { theme, setTheme } = useTheme();
+  const t = useT();
   const options: { value: Theme; label: string }[] = [
-    { value: "light", label: "Sáng" },
-    { value: "dark", label: "Tối" },
-    { value: "system", label: "Theo hệ thống" },
+    { value: "light", label: t("settings.themeLight") },
+    { value: "dark", label: t("settings.themeDark") },
+    { value: "system", label: t("settings.themeSystem") },
   ];
   return (
-    <Section title="Giao diện">
-      <div role="radiogroup" aria-label="Chế độ giao diện" className="grid grid-cols-3 gap-2.5">
+    <Section title={t("settings.appearance")}>
+      <div role="radiogroup" aria-label={t("settings.themeGroupLabel")} className="grid grid-cols-3 gap-2.5">
         {options.map((o) => {
           const selected = theme === o.value;
           return (
@@ -115,8 +119,44 @@ function AppearanceSection() {
   );
 }
 
+function LanguageSection() {
+  const lang = useLangStore((s) => s.lang);
+  const setLang = useLangStore((s) => s.setLang);
+  const t = useT();
+  // Language names stay in their own language (endonyms) in every locale.
+  const options: { value: Lang; label: string }[] = [
+    { value: "vi", label: "Tiếng Việt" },
+    { value: "en", label: "English" },
+  ];
+  return (
+    <Section title={t("settings.language")}>
+      <div role="radiogroup" aria-label={t("settings.language")} className="flex w-fit gap-0.5 rounded-[10px] bg-hover p-[3px]">
+        {options.map((o) => {
+          const selected = lang === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setLang(o.value)}
+              className={cn(
+                "flex h-7 items-center justify-center rounded-sm px-3 text-callout font-medium transition-colors",
+                selected ? "bg-control text-fg shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-fg-secondary hover:text-fg",
+              )}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
 function DataSection() {
   const pushToast = useUi((s) => s.pushToast);
+  const t = useT();
   const [confirmTrash, setConfirmTrash] = useState(false);
   const [syncFolder, setSyncFolder] = useState<string | null>(null);
 
@@ -132,9 +172,9 @@ function DataSection() {
       if (typeof picked !== "string") return;
       await syncApi.setFolder(picked);
       setSyncFolder(picked);
-      pushToast({ message: "Đã bật đồng bộ 2 chiều", durationMs: 4000 });
+      pushToast({ message: t("settings.syncEnabled"), durationMs: 4000 });
     } catch (e) {
-      pushToast({ message: `Không chọn được thư mục: ${e}`, durationMs: 5000 });
+      pushToast({ message: t("settings.chooseFolderError", { error: String(e) }), durationMs: 5000 });
     }
   };
 
@@ -142,9 +182,9 @@ function DataSection() {
     try {
       await syncApi.setFolder(null);
       setSyncFolder(null);
-      pushToast({ message: "Đã tắt đồng bộ thư mục", durationMs: 4000 });
+      pushToast({ message: t("settings.syncDisabled"), durationMs: 4000 });
     } catch (e) {
-      pushToast({ message: `Không tắt được đồng bộ: ${e}`, durationMs: 5000 });
+      pushToast({ message: t("settings.syncDisableError", { error: String(e) }), durationMs: 5000 });
     }
   };
 
@@ -154,80 +194,81 @@ function DataSection() {
       const { openPath } = await import("@tauri-apps/plugin-opener");
       await openPath(await appDataDir());
     } catch (e) {
-      pushToast({ message: `Không mở được thư mục: ${e}`, durationMs: 5000 });
+      pushToast({ message: t("settings.openFolderError", { error: String(e) }), durationMs: 5000 });
     }
   };
 
   return (
-    <Section title="Dữ liệu" description="Mỗi ghi chú là một file .md — bạn có thể sao lưu hoặc mở bằng bất kỳ trình soạn thảo nào.">
+    <Section title={t("settings.data")} description={t("settings.dataDescription")}>
       <RowGroup>
-        <Row label="Thư mục dữ liệu" description="%APPDATA%\com.dungnt.dntnote">
+        <Row label={t("settings.dataFolder")} description="%APPDATA%\com.dungnt.dntnote">
           <SecondaryButton onClick={() => void openDataFolder()} disabled={!isTauri}>
-            <FolderOpen size={14} aria-hidden="true" /> Mở thư mục
+            <FolderOpen size={14} aria-hidden="true" /> {t("settings.openFolder")}
           </SecondaryButton>
         </Row>
         <Row
-          label="Đồng bộ thư mục"
+          label={t("settings.syncFolder")}
           description={
             syncFolder
-              ? `Đang đồng bộ với ${syncFolder}`
-              : "Mirror 2 chiều với OneDrive / Google Drive — xung đột lấy bản mới hơn."
+              ? t("settings.syncingWith", { folder: syncFolder })
+              : t("settings.syncDescription")
           }
         >
           <span className="flex shrink-0 gap-2">
             {syncFolder && (
               <SecondaryButton destructive onClick={() => void disableSync()}>
-                Tắt
+                {t("settings.syncDisable")}
               </SecondaryButton>
             )}
             <SecondaryButton onClick={() => void chooseSyncFolder()} disabled={!isTauri}>
-              <FolderSync size={14} aria-hidden="true" /> {syncFolder ? "Đổi thư mục" : "Chọn thư mục"}
+              <FolderSync size={14} aria-hidden="true" /> {syncFolder ? t("settings.changeFolder") : t("settings.chooseFolder")}
             </SecondaryButton>
           </span>
         </Row>
-        <Row label="Thùng rác" description="Ghi chú đã xóa được giữ lại để có thể khôi phục.">
+        <Row label={t("settings.trash")} description={t("settings.trashDescription")}>
           <SecondaryButton destructive onClick={() => setConfirmTrash(true)} disabled={!isTauri}>
-            <Trash2 size={14} aria-hidden="true" /> Dọn sạch…
+            <Trash2 size={14} aria-hidden="true" /> {t("settings.emptyTrash")}
           </SecondaryButton>
         </Row>
       </RowGroup>
       <ConfirmDialog
         open={confirmTrash}
-        title="Dọn sạch thùng rác?"
-        description="Mọi ghi chú trong thùng rác sẽ bị xóa vĩnh viễn và không thể khôi phục."
-        confirmLabel="Xóa vĩnh viễn"
+        title={t("settings.emptyTrashTitle")}
+        description={t("settings.emptyTrashDescription")}
+        confirmLabel={t("settings.deleteForever")}
         onCancel={() => setConfirmTrash(false)}
         onConfirm={() => {
           setConfirmTrash(false);
           void api.notes
             .emptyTrash()
-            .then((n) => pushToast({ message: `Đã xóa vĩnh viễn ${n} ghi chú`, durationMs: 4000 }))
-            .catch((e) => pushToast({ message: `Không dọn được thùng rác: ${e}`, durationMs: 6000 }));
+            .then((n) => pushToast({ message: t("settings.trashEmptied", { n }), durationMs: 4000 }))
+            .catch((e) => pushToast({ message: t("settings.emptyTrashError", { error: String(e) }), durationMs: 6000 }));
         }}
       />
     </Section>
   );
 }
 
-const SHORTCUTS: [string, string[]][] = [
-  ["Ghi chú mới", ["Ctrl", "N"]],
-  ["Hội thoại mới", ["Ctrl", "Shift", "O"]],
-  ["Bảng lệnh", ["Ctrl", "K"]],
-  ["Ghi chú / Trợ lý", ["Ctrl", "1 / 2"]],
-  ["Trợ lý cạnh ghi chú", ["Ctrl", "Shift", "J"]],
-  ["Ẩn/hiện thanh bên", ["Ctrl", "\\"]],
-  ["Tìm ghi chú", ["Ctrl", "F"]],
-  ["Lưu ngay", ["Ctrl", "S"]],
-  ["Hoàn tác xóa", ["Ctrl", "Z"]],
-  ["Cài đặt", ["Ctrl", ","]],
+const SHORTCUTS: [TKey, string[]][] = [
+  ["settings.shortcutNewNote", ["Ctrl", "N"]],
+  ["settings.shortcutNewChat", ["Ctrl", "Shift", "O"]],
+  ["settings.shortcutPalette", ["Ctrl", "K"]],
+  ["settings.shortcutNotesChat", ["Ctrl", "1 / 2"]],
+  ["settings.shortcutChatDocked", ["Ctrl", "Shift", "J"]],
+  ["settings.shortcutToggleSidebar", ["Ctrl", "\\"]],
+  ["settings.shortcutSearch", ["Ctrl", "F"]],
+  ["settings.shortcutSave", ["Ctrl", "S"]],
+  ["settings.shortcutUndoDelete", ["Ctrl", "Z"]],
+  ["settings.shortcutSettings", ["Ctrl", ","]],
 ];
 
 function ShortcutsSection() {
+  const t = useT();
   return (
-    <Section title="Phím tắt">
+    <Section title={t("settings.shortcuts")}>
       <RowGroup>
-        {SHORTCUTS.map(([label, keys]) => (
-          <Row key={label} label={label}>
+        {SHORTCUTS.map(([key, keys]) => (
+          <Row key={key} label={t(key)}>
             <span className="flex gap-1">
               {keys.map((k) => (
                 <Keycap key={k}>{k}</Keycap>
@@ -241,14 +282,64 @@ function ShortcutsSection() {
 }
 
 function AboutSection() {
+  const t = useT();
   return (
-    <Section title="Giới thiệu">
+    <Section title={t("settings.about")}>
       <RowGroup>
-        <Row label="DNT Note" description="Ghi chú local-first, lấy cảm hứng từ NoteStudio · Rust + Tauri">
-          <span className="text-footnote tabular-nums text-fg-secondary">Phiên bản 0.1.0</span>
+        <Row label="DNT Note" description={t("settings.aboutDescription")}>
+          <span className="text-footnote tabular-nums text-fg-secondary">{t("settings.version", { version: "0.1.0" })}</span>
         </Row>
-        <Row label="MCP server" description="dnt-note-mcp — cho AI client bên ngoài đọc và ghi ghi chú" />
+        <Row label="MCP server" description={t("settings.mcpDescription")} />
       </RowGroup>
+    </Section>
+  );
+}
+
+type SettingsTab = "general" | "providers" | "data" | "shortcuts";
+
+const TAB_IDS: { id: SettingsTab; labelKey: TKey }[] = [
+  { id: "general", labelKey: "settings.tabGeneral" },
+  { id: "providers", labelKey: "settings.tabProviders" },
+  { id: "data", labelKey: "settings.tabData" },
+  { id: "shortcuts", labelKey: "settings.tabShortcuts" },
+];
+
+function TabBar({ tab, onChange }: { tab: SettingsTab; onChange: (t: SettingsTab) => void }) {
+  const t = useT();
+  return (
+    <div role="tablist" aria-label={t("settings.tablistLabel")} className="flex w-fit gap-0.5 rounded-[10px] bg-hover p-[3px]">
+      {TAB_IDS.map(({ id, labelKey }) => {
+        const active = tab === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`settings-tab-${id}`}
+            aria-selected={active}
+            aria-controls={`settings-panel-${id}`}
+            onClick={() => onChange(id)}
+            className={cn(
+              "flex h-7 items-center justify-center gap-1.5 rounded-sm px-3 text-callout font-medium transition-colors",
+              active ? "bg-control text-fg shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-fg-secondary hover:text-fg",
+            )}
+          >
+            {t(labelKey)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProvidersPanel() {
+  const t = useT();
+  return (
+    <Section
+      title={t("settings.tabProviders")}
+      description={t("settings.providersDescription")}
+    >
+      <ProvidersSection />
     </Section>
   );
 }
@@ -256,27 +347,37 @@ function AboutSection() {
 export function SettingsPage() {
   const loaded = useSettingsStore((s) => s.loaded);
   const loadStore = useSettingsStore((s) => s.loadStore);
+  const t = useT();
+  const [tab, setTab] = useState<SettingsTab>("general");
 
   useEffect(() => {
     if (!loaded) void loadStore();
   }, [loaded, loadStore]);
 
   return (
-    <main aria-label="Cài đặt" className="flex min-w-0 flex-1 flex-col bg-app">
+    <main aria-label={t("settings.title")} className="flex min-w-0 flex-1 flex-col bg-app">
       <ContentHeader />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[680px] flex-col gap-8 px-10 pb-12 pt-2">
-          <h1 className="text-large-title font-bold text-fg">Cài đặt</h1>
-          <AppearanceSection />
-          <Section
-            title="Nhà cung cấp AI"
-            description="Mọi dịch vụ tương thích OpenAI (OpenAI, Ollama, OpenRouter, Groq, vLLM…). API key chỉ lưu trên máy này."
+        <div className="mx-auto flex w-full max-w-[680px] flex-col gap-6 px-10 pb-12 pt-2">
+          <h1 className="text-large-title font-bold text-fg">{t("settings.title")}</h1>
+          <TabBar tab={tab} onChange={setTab} />
+          <div
+            role="tabpanel"
+            id={`settings-panel-${tab}`}
+            aria-labelledby={`settings-tab-${tab}`}
+            className="flex flex-col gap-8"
           >
-            <ProvidersSection />
-          </Section>
-          <DataSection />
-          <ShortcutsSection />
-          <AboutSection />
+            {tab === "general" && (
+              <>
+                <AppearanceSection />
+                <LanguageSection />
+                <AboutSection />
+              </>
+            )}
+            {tab === "providers" && <ProvidersPanel />}
+            {tab === "data" && <DataSection />}
+            {tab === "shortcuts" && <ShortcutsSection />}
+          </div>
         </div>
       </div>
     </main>

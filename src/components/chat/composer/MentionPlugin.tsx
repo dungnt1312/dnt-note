@@ -16,6 +16,7 @@ import {
 import { FileText } from "lucide-react";
 import { activeTriggerQuery } from "../../../lib/chat/triggers";
 import { fuzzyRank } from "../../../lib/fuzzy";
+import { useT } from "../../../lib/i18n";
 import type { NoteMeta } from "../../../lib/api/notes";
 import { useNotesStore } from "../../../lib/store/notesStore";
 import { cn } from "../../../lib/utils";
@@ -35,6 +36,7 @@ export function rankNoteCandidates(notes: NoteMeta[], query: string, excludedIds
  */
 export function MentionPlugin({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
   const [editor] = useLexicalComposerContext();
+  const t = useT();
   const notes = useNotesStore((s) => s.notes);
   const [query, setQuery] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
@@ -143,10 +145,10 @@ export function MentionPlugin({ onOpenChange }: { onOpenChange: (open: boolean) 
     <div
       role="listbox"
       id="mention-list"
-      aria-label="Chọn ghi chú"
+      aria-label={t("chat.mentionListLabel")}
       className="absolute bottom-full left-0 right-0 z-10 mb-2 max-h-[300px] overflow-y-auto rounded-[16px] border border-composer-border bg-popover p-1.5 shadow-popover"
     >
-      <div className="px-2.5 pb-1 pt-1 text-caption font-medium text-fg-secondary">Nhắc tới ghi chú</div>
+      <div className="px-2.5 pb-1 pt-1 text-caption font-medium text-fg-secondary">{t("chat.mentionHeader")}</div>
       {candidates.map((n, i) => (
         <button
           key={n.id}
@@ -164,7 +166,7 @@ export function MentionPlugin({ onOpenChange }: { onOpenChange: (open: boolean) 
           <FileText size={14} aria-hidden="true" className="shrink-0 text-fg-secondary" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-callout font-medium text-fg">{n.title}</span>
-            <span className="block truncate text-caption text-fg-secondary">{n.snippet || "Chưa có nội dung"}</span>
+            <span className="block truncate text-caption text-fg-secondary">{n.snippet || t("chat.noContent")}</span>
           </span>
         </button>
       ))}

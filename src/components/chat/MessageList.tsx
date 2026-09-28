@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { useState, type ComponentProps, type ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
@@ -20,22 +20,29 @@ import type { UiMessage, UiToolCall } from "../../lib/store/chatStore";
 import { useChatStore } from "../../lib/store/chatStore";
 import { useNotesStore } from "../../lib/store/notesStore";
 import { useUi } from "../../lib/store/uiStore";
+import { useT } from "../../lib/i18n";
+import { openNoteById, parseNoteHref } from "../../lib/openNote";
 import { api } from "../../lib/api/notes";
 import { cn } from "../../lib/utils";
 import { PillButton, SecondaryButton } from "../ui/Button";
 
-const TOOL_LABEL: Record<string, string> = {
-  list_notes: "Xem danh sách ghi chú",
-  get_recent_notes: "Xem ghi chú gần đây",
-  search_notes: "Tìm trong ghi chú",
-  read_note: "Đọc ghi chú",
-  create_note: "Tạo ghi chú",
-  update_note: "Sửa ghi chú",
-  delete_note: "Đề nghị xóa ghi chú",
-  get_stats: "Xem thống kê",
-  list_tags: "Xem danh sách thẻ",
-  set_tags: "Gắn thẻ",
-};
+type TFn = ReturnType<typeof useT>;
+
+function toolLabel(name: string, t: TFn): string {
+  const labels: Record<string, string> = {
+    list_notes: t("chat.tool.listNotes"),
+    get_recent_notes: t("chat.tool.getRecentNotes"),
+    search_notes: t("chat.tool.searchNotes"),
+    read_note: t("chat.tool.readNote"),
+    create_note: t("chat.tool.createNote"),
+    update_note: t("chat.tool.updateNote"),
+    delete_note: t("chat.tool.deleteNote"),
+    get_stats: t("chat.tool.getStats"),
+    list_tags: t("chat.tool.listTags"),
+    set_tags: t("chat.tool.setTags"),
+  };
+  return labels[name] ?? name;
+}
 
 function toolIcon(name: string) {
   if (name === "delete_note") return <Trash2 size={11} />;
@@ -55,6 +62,24 @@ function pretty(raw: string | undefined): string {
   }
 }
 
+/** `[Tên](note://<id>)` links from the assistant open that note in the editor. */
+function NoteAnchor({ href, children }: ComponentProps<"a">) {
+  const t = useT();
+  const id = href ? parseNoteHref(href) : null;
+  if (!id) return <a href={href}>{children}</a>;
+  return (
+    <button
+      type="button"
+      title={t("chat.openThisNote")}
+      onClick={() => void openNoteById(id)}
+      className="inline-flex max-w-full items-center gap-1 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-normal text-accent transition-colors hover:bg-hover hover:text-accent"
+    >
+      <FileText size={12} aria-hidden="true" className="shrink-0" />
+      <span className="truncate underline decoration-fg-tertiary underline-offset-2">{children}</span>
+    </button>
+  );
+}
+
 function Markdown({ text }: { text: string }) {
   return (
     <div
@@ -72,7 +97,14 @@ function Markdown({ text }: { text: string }) {
         "[&_hr]:border-hairline",
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // `note://` is an app-internal protocol — keep it, sanitize everything else.
+        urlTransform={(url) => (parseNoteHref(url) ? url : defaultUrlTransform(url))}
+        components={{ a: NoteAnchor }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -104,9 +136,10 @@ function HoverAction({
 
 function CopyAction({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const t = useT();
   return (
     <HoverAction
-      label={copied ? "Đã sao chép" : "Sao chép"}
+      label={copied ? t("chat.copied") : t("chat.copyMessage")}
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -119,14 +152,15 @@ function CopyAction({ text }: { text: string }) {
   );
 }
 
-/** All tool calls of one reply collapsed into a single "Đã dùng N công cụ ›" line. */
+/** All tool calls of one reply collapsed into a single "Used N tools ›" line. */
 function ToolActivity({ calls }: { calls: UiToolCall[] }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const running = calls.some((c) => c.status === "running");
   const last = calls[calls.length - 1];
-  const lastLabel = TOOL_LABEL[last.name] ?? last.name;
-  const summary = calls.length === 1 ? lastLabel : `Đã dùng ${calls.length} công cụ · ${lastLabel}`;
+  const lastLabel = toolLabel(last.name, t);
+  const summary = calls.length === 1 ? lastLabel : t("chat.toolUsed", { n: calls.length, last: lastLabel });
 
   return (
     <div className="mb-2">
@@ -161,12 +195,12 @@ function ToolActivity({ calls }: { calls: UiToolCall[] }) {
                 <span aria-hidden="true" className="flex w-3.5 justify-center text-fg-tertiary">
                   {toolIcon(c.name)}
                 </span>
-                {TOOL_LABEL[c.name] ?? c.name}
-                <span className="text-caption text-fg-tertiary underline underline-offset-2">chi tiết</span>
+                {toolLabel(c.name, t)}
+                <span className="text-caption text-fg-tertiary underline underline-offset-2">{t("chat.details")}</span>
               </button>
               {detail === c.id && (
                 <pre className="ml-2 mt-1 max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-all rounded-sm bg-subtle p-2.5 font-mono text-caption text-fg-secondary">
-                  {`▶ tham số\n${pretty(c.args)}\n\n◀ kết quả\n${pretty(c.result) || "…"}`}
+                  {`${t("chat.toolParams")}\n${pretty(c.args)}\n\n${t("chat.toolResult")}\n${pretty(c.result) || "…"}`}
                 </pre>
               )}
             </li>
@@ -178,6 +212,7 @@ function ToolActivity({ calls }: { calls: UiToolCall[] }) {
 }
 
 function DeleteConfirmCard({ pending }: { pending: NonNullable<UiMessage["pendingDelete"]> }) {
+  const t = useT();
   const confirmDelete = useChatStore((s) => s.confirmDelete);
   const cancelDelete = useChatStore((s) => s.cancelDelete);
 
@@ -185,33 +220,36 @@ function DeleteConfirmCard({ pending }: { pending: NonNullable<UiMessage["pendin
     return (
       <div className="mb-2 flex items-center gap-2 text-callout text-fg-secondary">
         <Trash2 size={13} aria-hidden="true" />
-        {pending.status === "confirmed" ? `Đã xóa “${pending.title}”` : `Đã giữ lại “${pending.title}”`}
+        {pending.status === "confirmed"
+          ? t("chat.deletedNote", { title: pending.title })
+          : t("chat.keptNote", { title: pending.title })}
       </div>
     );
   }
 
   return (
-    <div role="alertdialog" aria-label="Xác nhận xóa" className="mb-3 rounded-md border border-danger-border bg-control p-4">
+    <div role="alertdialog" aria-label={t("chat.deleteConfirmLabel")} className="mb-3 rounded-md border border-danger-border bg-control p-4">
       <div className="flex items-center gap-2 text-callout font-semibold text-fg">
         <AlertTriangle size={15} aria-hidden="true" className="text-danger" />
-        Trợ lý muốn xóa 1 ghi chú
+        {t("chat.deleteRequestTitle")}
       </div>
       <p className="mt-2 flex items-center gap-2 text-callout text-fg">
         <FileText size={13} aria-hidden="true" className="text-fg-tertiary" />
         {pending.title}
       </p>
-      <p className="mt-1 text-footnote text-fg-secondary">Ghi chú chuyển vào thùng rác — có thể hoàn tác.</p>
+      <p className="mt-1 text-footnote text-fg-secondary">{t("chat.deleteRequestDesc")}</p>
       <div className="mt-3 flex gap-2">
         <PillButton tone="danger" className="h-8 px-3.5" onClick={() => void confirmDelete(pending.id)}>
-          Xóa
+          {t("chat.delete")}
         </PillButton>
-        <SecondaryButton onClick={() => cancelDelete(pending.id)}>Giữ lại</SecondaryButton>
+        <SecondaryButton onClick={() => void cancelDelete(pending.id)}>{t("chat.keep")}</SecondaryButton>
       </div>
     </div>
   );
 }
 
 function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?: () => void; busy: boolean }) {
+  const t = useT();
   return (
     <div className="group flex flex-col items-end gap-1">
       {message.attachments && message.attachments.length > 0 && (
@@ -238,15 +276,28 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
       )}
       {message.mentions && message.mentions.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1">
-          {message.mentions.map((m) => (
-            <span
-              key={m.id}
-              className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary"
-            >
-              <FileText size={11} aria-hidden="true" />
-              {m.failed ? `${m.title} (không đọc được)` : m.title}
-            </span>
-          ))}
+          {message.mentions.map((m) =>
+            m.failed ? (
+              <span
+                key={m.id}
+                className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary"
+              >
+                <FileText size={11} aria-hidden="true" />
+                {t("chat.failedMention", { title: m.title })}
+              </span>
+            ) : (
+              <button
+                key={m.id}
+                type="button"
+                title={t("chat.openThisNote")}
+                onClick={() => void openNoteById(m.id)}
+                className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary transition-colors hover:bg-hover hover:text-fg"
+              >
+                <FileText size={11} aria-hidden="true" />
+                {m.title}
+              </button>
+            ),
+          )}
         </div>
       )}
       {message.content && (
@@ -258,7 +309,7 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
         <div className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <CopyAction text={message.content} />
           {onRetry && (
-            <HoverAction label="Gửi lại" onClick={onRetry} disabled={busy}>
+            <HoverAction label={t("chat.resend")} onClick={onRetry} disabled={busy}>
               <RotateCcw size={14} aria-hidden="true" />
             </HoverAction>
           )}
@@ -269,6 +320,7 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
 }
 
 function AssistantMessage({ message, isLast, busy }: { message: UiMessage; isLast: boolean; busy: boolean }) {
+  const t = useT();
   const retryLast = useChatStore((s) => s.retryLast);
   const selectedId = useNotesStore((s) => s.selectedId);
   const notes = useNotesStore((s) => s.notes);
@@ -282,7 +334,7 @@ function AssistantMessage({ message, isLast, busy }: { message: UiMessage; isLas
     const current = store.body ?? "";
     store.setBody(`${current.replace(/\s*$/, "")}\n\n${message.content}\n`);
     await store.flushSave();
-    pushToast({ message: `Đã chèn vào “${selected.title}”`, durationMs: 3000 });
+    pushToast({ message: t("chat.insertedToast", { title: selected.title }), durationMs: 3000 });
   };
 
   const saveAsNote = async () => {
@@ -291,32 +343,34 @@ function AssistantMessage({ message, isLast, busy }: { message: UiMessage; isLas
       .find((l) => l.trim())
       ?.replace(/^#+\s*/, "")
       .slice(0, 60);
-    const note = await api.notes.create(firstLine || "Trả lời của trợ lý", message.content, []);
+    const note = await api.notes.create(firstLine || t("chat.assistantReplyTitle"), message.content, []);
     await useNotesStore.getState().load();
-    pushToast({ message: `Đã lưu thành ghi chú “${note.title}”`, durationMs: 3000 });
+    pushToast({ message: t("chat.savedAsNoteToast", { title: note.title }), durationMs: 3000 });
   };
 
   return (
     <div className="group">
       {message.toolCalls && message.toolCalls.length > 0 && <ToolActivity calls={message.toolCalls} />}
-      {message.pendingDelete && <DeleteConfirmCard pending={message.pendingDelete} />}
+      {(message.pendingDeletes ?? (message.pendingDelete ? [message.pendingDelete] : [])).map((pending) => (
+        <DeleteConfirmCard key={pending.id} pending={pending} />
+      ))}
       {message.content && <Markdown text={message.content} />}
       {streamingHere && !message.content && !message.error && (message.toolCalls?.length ?? 0) === 0 && (
         <div className="flex items-center gap-2 py-1 text-callout text-fg-secondary" aria-live="polite">
           <span className="size-2.5 animate-pulse rounded-full bg-fg" aria-hidden="true" />
-          Đang suy nghĩ…
+          {t("chat.thinking")}
         </div>
       )}
       {message.error && (
         <div role="alert" className="mt-2 flex items-start gap-2 rounded-md border border-danger-border bg-danger-fill px-3 py-2.5">
           <AlertTriangle size={14} aria-hidden="true" className="mt-0.5 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
-            <p className="text-footnote font-semibold text-fg">Không nhận được trả lời</p>
+            <p className="text-footnote font-semibold text-fg">{t("chat.noReplyTitle")}</p>
             <p className="break-words text-footnote text-fg-secondary">{message.error}</p>
           </div>
           {isLast && (
             <SecondaryButton className="h-7 px-3" onClick={() => void retryLast()} disabled={busy}>
-              Thử lại
+              {t("chat.retry")}
             </SecondaryButton>
           )}
         </div>
@@ -325,15 +379,15 @@ function AssistantMessage({ message, isLast, busy }: { message: UiMessage; isLas
         <div className="mt-1 flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <CopyAction text={message.content} />
           {selected && (
-            <HoverAction label={`Chèn vào “${selected.title}”`} onClick={() => void appendToNote()}>
+            <HoverAction label={t("chat.insertInto", { title: selected.title })} onClick={() => void appendToNote()}>
               <TextQuote size={14} aria-hidden="true" />
             </HoverAction>
           )}
-          <HoverAction label="Lưu thành ghi chú mới" onClick={() => void saveAsNote()}>
+          <HoverAction label={t("chat.saveAsNote")} onClick={() => void saveAsNote()}>
             <FilePlus2 size={14} aria-hidden="true" />
           </HoverAction>
           {isLast && (
-            <HoverAction label="Tạo lại câu trả lời" onClick={() => void retryLast()} disabled={busy}>
+            <HoverAction label={t("chat.regenerate")} onClick={() => void retryLast()} disabled={busy}>
               <RotateCcw size={14} aria-hidden="true" />
             </HoverAction>
           )}
@@ -344,10 +398,11 @@ function AssistantMessage({ message, isLast, busy }: { message: UiMessage; isLas
 }
 
 export function MessageList({ messages, streaming }: { messages: UiMessage[]; streaming: boolean }) {
+  const t = useT();
   const retryLast = useChatStore((s) => s.retryLast);
   const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
   return (
-    <div className="flex flex-col gap-5" role="log" aria-label="Hội thoại" aria-busy={streaming}>
+    <div className="flex flex-col gap-5" role="log" aria-label={t("chat.conversationLabel")} aria-busy={streaming}>
       {messages.map((m, i) =>
         m.role === "user" ? (
           <UserMessage

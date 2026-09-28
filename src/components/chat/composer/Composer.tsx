@@ -16,6 +16,7 @@ import {
 import { useChatStore } from "../../../lib/store/chatStore";
 import { useComposerStore } from "../../../lib/store/composerStore";
 import { api as notesApi } from "../../../lib/api/notes";
+import { useT } from "../../../lib/i18n";
 import type { MentionInput } from "../../../lib/chat/payload";
 import { cn } from "../../../lib/utils";
 import { ChatInput } from "./ChatInput";
@@ -33,15 +34,10 @@ interface ComposerProps {
   compact?: boolean;
 }
 
-const DIALOG_FILTERS = [
-  {
-    name: "Đính kèm",
-    extensions: [
-      "png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf", "docx", "rtf", "odt",
-      "txt", "md", "csv", "json", "rs", "py", "js", "ts", "tsx", "jsx", "go",
-      "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
-    ],
-  },
+const DIALOG_FILTER_EXTENSIONS = [
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf", "docx", "rtf", "odt",
+  "txt", "md", "csv", "json", "rs", "py", "js", "ts", "tsx", "jsx", "go",
+  "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
 ];
 
 /**
@@ -50,6 +46,7 @@ const DIALOG_FILTERS = [
  * the store accepts the message.
  */
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ placeholder }, ref) {
+  const t = useT();
   const chatId = useChatStore((s) => s.chatId);
   const status = useChatStore((s) => s.status);
   const send = useChatStore((s) => s.send);
@@ -59,24 +56,35 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const addFiles = useComposerStore((s) => s.addAttachmentFiles);
   const addPaths = useComposerStore((s) => s.addAttachmentPaths);
   const removeAttachment = useComposerStore((s) => s.removeAttachment);
-  const clearDraft = useComposerStore((s) => s.clearDraft);
+  const consumeSentDraft = useComposerStore((s) => s.consumeSentDraft);
+  const restoreDraftAttachments = useComposerStore((s) => s.restoreDraftAttachments);
 
   const editorRef = useRef<LexicalEditor | null>(null);
   const menuOpenRef = useRef(false);
+  const preparingSendRef = useRef(false);
+  const [preparingSend, setPreparingSend] = useState(false);
   const [text, setTextState] = useState(draft?.text ?? "");
+
+  const needsDraftRestore = draft?.attachments.some(
+    (a) => a.status === "ready" && (!a.name || (a.kind === "image" ? !a.previewUrl : a.text === undefined)),
+  ) ?? false;
+
+  useEffect(() => {
+    if (needsDraftRestore) void restoreDraftAttachments(chatId);
+  }, [chatId, needsDraftRestore, restoreDraftAttachments]);
 
   const pendingContext = useComposerStore((s) => s.pendingContext);
   const takeChatContext = useComposerStore((s) => s.takeChatContext);
   const addSnippet = useComposerStore((s) => s.addSnippet);
 
   // One-shot handoff from the note editor's right-click menu: a snippet becomes
-  // a virtual attachment, a note becomes an @token; then focus the composer.
+  // a stored document attachment, a note becomes an @token; then focus the composer.
   useEffect(() => {
     if (!pendingContext) return;
     const ctx = takeChatContext();
     if (!ctx) return;
     if (ctx.kind === "snippet") {
-      addSnippet(chatId, { originalName: ctx.title, text: ctx.text });
+      void addSnippet(chatId, { originalName: ctx.title, text: ctx.text });
     } else if (editorRef.current) {
       appendNoteToken(editorRef.current, { id: ctx.noteId, title: ctx.title });
     }
@@ -85,20 +93,20 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
-    setText: (t: string) => {
-      setTextState(t);
+    setText: (text: string) => {
+      setTextState(text);
       editorRef.current?.update(
         () => {
           const root = $getRoot();
           root.clear();
           const p = $createParagraphNode();
-          p.append($createTextNode(t));
+          p.append($createTextNode(text));
           root.append(p);
           const sel = $createRangeSelection();
           const last = p.getLastDescendant() ?? p;
           if (last instanceof TextNode) {
-            sel.anchor.set(last.getKey(), t.length, "text");
-            sel.focus.set(last.getKey(), t.length, "text");
+            sel.anchor.set(last.getKey(), text.length, "text");
+            sel.focus.set(last.getKey(), text.length, "text");
           }
           $setSelection(sel);
         },
@@ -109,63 +117,102 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }));
 
   const ready = draft?.attachments.filter((a) => a.status === "ready") ?? [];
+  const hasImporting = draft?.attachments.some((a) => a.status === "importing") ?? false;
   const errorCount = draft?.attachments.filter((a) => a.status === "error").length ?? 0;
-  const canSend = (text.trim().length > 0 || ready.length > 0) && status !== "streaming";
+  const canSend =
+    (text.trim().length > 0 || ready.length > 0)
+    && !hasImporting
+    && !preparingSend
+    && !needsDraftRestore
+    && status !== "streaming";
 
   const doSend = useCallback(async () => {
     const editor = editorRef.current;
-    if (!editor || status === "streaming") return;
-    const tokens = editor.getEditorState().read(() =>
-      $nodesOfType(ContextTokenNode).map((n) => ({ kind: n.getKind(), id: n.getId(), label: n.getLabel() })),
-    );
-    const editorText = editor.getEditorState().read(() => $getRoot().getTextContent());
-    const attachments = ready.map(({ id, name, originalName, size, kind, text: at, previewUrl }) => ({
-      id,
-      name,
-      originalName,
-      size,
-      kind,
-      text: at,
-      previewUrl,
-    }));
-    if (!editorText.trim() && attachments.length === 0) return;
-
-    const seen = new Set<string>();
-    const mentions: MentionInput[] = [];
-    for (const t of tokens.filter((t) => t.kind === "note")) {
-      if (seen.has(t.id)) continue;
-      seen.add(t.id);
-      try {
-        const note = await notesApi.notes.read(t.id);
-        mentions.push({ id: t.id, title: t.label, body: note.body });
-      } catch {
-        mentions.push({ id: t.id, title: t.label, body: "", failed: true });
-      }
-    }
-
-    const result = await send({ text: editorText, mentions, attachments });
-    if (result.ok) {
-      // Clear the editor first — its onChange writes an empty draft — then drop
-      // the draft entry entirely so nothing lingers for this chat.
-      editor.update(
-        () => {
-          const root = $getRoot();
-          root.clear();
-          root.append($createParagraphNode());
-        },
-        { discrete: true },
+    if (!editor || status === "streaming" || hasImporting || needsDraftRestore || preparingSendRef.current) return;
+    preparingSendRef.current = true;
+    setPreparingSend(true);
+    try {
+      const tokens = editor.getEditorState().read(() =>
+        $nodesOfType(ContextTokenNode).map((n) => ({ kind: n.getKind(), id: n.getId(), label: n.getLabel() })),
       );
-      clearDraft(chatId);
-      setTextState("");
+      const editorState = editor.getEditorState();
+      const editorJson = JSON.stringify(editorState.toJSON());
+      const editorText = editorState.read(() => $getRoot().getTextContent());
+      const attachments = ready.map(({ id, name, originalName, size, kind, text: at, previewUrl }) => ({
+        id,
+        name,
+        originalName,
+        size,
+        kind,
+        text: at,
+        previewUrl,
+      }));
+      if (!editorText.trim() && attachments.length === 0) return;
+
+      const seen = new Set<string>();
+      const mentions: MentionInput[] = [];
+      for (const tok of tokens.filter((tk) => tk.kind === "note")) {
+        if (seen.has(tok.id)) continue;
+        seen.add(tok.id);
+        try {
+          const note = await notesApi.notes.read(tok.id);
+          mentions.push({ id: tok.id, title: tok.label, body: note.body });
+        } catch {
+          mentions.push({ id: tok.id, title: tok.label, body: "", failed: true });
+        }
+      }
+
+      const currentEditorState = editor.getEditorState();
+      const currentEditorJson = JSON.stringify(currentEditorState.toJSON());
+      const currentEditorText = currentEditorState.read(() => $getRoot().getTextContent());
+      const currentDraft = useComposerStore.getState().drafts[chatId];
+      const currentReadyIds = currentDraft?.attachments.filter((a) => a.status === "ready").map((a) => a.id) ?? [];
+      const sentIds = attachments.map((a) => a.id);
+      if (
+        useChatStore.getState().chatId !== chatId
+        || currentEditorJson !== editorJson
+        || currentEditorText !== editorText
+        || currentDraft?.attachments.some((a) => a.status === "importing")
+        || currentReadyIds.length !== sentIds.length
+        || currentReadyIds.some((id, index) => id !== sentIds[index])
+      ) return;
+
+      let consumed = false;
+      const consumeAcceptedDraft = () => {
+        consumed = true;
+        const latestEditorState = editor.getEditorState();
+        const latestText = latestEditorState.read(() => $getRoot().getTextContent());
+        const editorUnchanged = JSON.stringify(latestEditorState.toJSON()) === editorJson && latestText === editorText;
+        consumeSentDraft(chatId, { editorJson, text: editorText, attachmentIds: sentIds });
+        if (editorUnchanged && useChatStore.getState().chatId === chatId) {
+          editor.update(
+            () => {
+              const root = $getRoot();
+              root.clear();
+              root.append($createParagraphNode());
+            },
+            { discrete: true },
+          );
+          setTextState("");
+        }
+      };
+      const result = await send({ text: editorText, mentions, attachments }, undefined, consumeAcceptedDraft);
+      if (result.ok && !consumed) consumeAcceptedDraft();
+      // Rejected → keep the draft; the store error banner explains why.
+    } finally {
+      preparingSendRef.current = false;
+      setPreparingSend(false);
     }
-    // Rejected → keep the draft; the store error banner explains why.
-  }, [chatId, ready, send, status, clearDraft]);
+  }, [chatId, ready, send, status, hasImporting, needsDraftRestore, consumeSentDraft]);
 
   const attach = useCallback(async () => {
-    const picked = await openFileDialog({ multiple: true, filters: DIALOG_FILTERS });
+    const picked = await openFileDialog({
+      multiple: true,
+      filters: [{ name: t("chat.attachFilterName"), extensions: DIALOG_FILTER_EXTENSIONS }],
+    });
     if (!picked) return;
     await addPaths(chatId, Array.isArray(picked) ? picked : [picked]);
-  }, [chatId, addPaths]);
+  }, [chatId, addPaths, t]);
 
   const insertAt = useCallback(() => {
     editorRef.current?.focus();
@@ -179,7 +226,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     });
   }, []);
 
-  const contextSummary = ready.length > 0 ? `${ready.length} file` : null;
+  const contextSummary = ready.length > 0 ? t("chat.contextFileCount", { n: ready.length }) : null;
 
   return (
     <div className="relative rounded-xl border border-composer-border bg-composer p-2.5 shadow-[0_3px_10px_rgba(0,0,0,0.06)]">
@@ -187,15 +234,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <ChatInput
         placeholder={placeholder}
         initialEditorJson={draft?.editorJson ?? null}
-        onChange={(json, t) => {
-          setTextState(t);
-          setEditorState(chatId, json, t);
+        onChange={(json, text) => {
+          setTextState(text);
+          setEditorState(chatId, json, text);
         }}
         onSubmit={() => void doSend()}
         onFilesPaste={(files) => void addFiles(chatId, files)}
-        onLongTextPaste={(t) => {
+        onLongTextPaste={(pasted) => {
           void addFiles(chatId, [
-            new File([new TextEncoder().encode(t)], "van-ban-da-dan.txt", { type: "text/plain" }),
+            new File([new TextEncoder().encode(pasted)], t("chat.pastedTextFileName"), { type: "text/plain" }),
           ]);
           return true;
         }}
@@ -213,8 +260,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <div className="mt-1 flex items-center gap-1">
         <button
           type="button"
-          aria-label="Đính kèm file"
-          title="Đính kèm file"
+          aria-label={t("chat.attachFile")}
+          title={t("chat.attachFile")}
           onClick={() => void attach()}
           className="flex size-[34px] items-center justify-center rounded-full text-fg transition-colors hover:bg-composer-hover"
         >
@@ -222,22 +269,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </button>
         <button
           type="button"
-          aria-label="Nhắc tới ghi chú (@)"
-          title="Nhắc tới ghi chú (@)"
+          aria-label={t("chat.mentionNote")}
+          title={t("chat.mentionNote")}
           onClick={insertAt}
           className="flex size-[34px] items-center justify-center rounded-full text-fg transition-colors hover:bg-composer-hover"
         >
           <AtSign size={17} strokeWidth={1.75} aria-hidden="true" />
         </button>
         {contextSummary && <span className="ml-1 text-caption text-fg-tertiary">{contextSummary}</span>}
-        {errorCount > 0 && <span className="ml-1 text-caption text-danger">{errorCount} file lỗi</span>}
+        {errorCount > 0 && <span className="ml-1 text-caption text-danger">{t("chat.errorFileCount", { n: errorCount })}</span>}
         <div className="flex-1" />
         {status === "streaming" ? (
           <button
             type="button"
             onClick={stop}
-            aria-label="Dừng tạo câu trả lời"
-            title="Dừng"
+            aria-label={t("chat.stopGenerating")}
+            title={t("chat.stop")}
             className="flex size-[34px] items-center justify-center rounded-full bg-accent transition-colors hover:bg-accent-hover"
           >
             <span aria-hidden="true" className="size-[11px] rounded-[2.5px] bg-accent-fg" />
@@ -247,8 +294,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             type="button"
             onClick={() => void doSend()}
             disabled={!canSend}
-            aria-label="Gửi (Enter)"
-            title="Gửi (Enter) · Shift+Enter để xuống dòng"
+            aria-label={t("chat.send")}
+            title={t("chat.sendHint")}
             className={cn(
               "flex size-[34px] items-center justify-center rounded-full transition-colors",
               canSend ? "bg-accent text-accent-fg hover:bg-accent-hover" : "bg-send-disabled text-send-disabled-fg",

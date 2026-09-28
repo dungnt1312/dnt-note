@@ -50,6 +50,7 @@ export function buildSystemPrompt(
     "Nguyên tắc:",
     "- Khi người dùng yêu cầu thao tác (tạo/sửa/tìm/xóa/đếm), hãy DÙNG tool, không tự bịa dữ liệu.",
     "- delete_note KHÔNG xóa ngay: hệ thống sẽ hiện thẻ xác nhận cho người dùng. Hãy nói rõ điều đó.",
+    "- Khi nhắc đến một ghi chú cụ thể (kết quả tìm kiếm, ghi chú vừa tạo/sửa/đọc), hãy bọc tên ghi chú trong link để người dùng bấm mở trực tiếp: [Tên ghi chú](note://<id>) — thay <id> bằng id thật từ kết quả tool.",
     "- Trả lời bằng markdown ngắn gọn, tiếng Việt theo ngôn ngữ của người dùng.",
     "- Khi tạo/sửa ghi chú, dùng markdown có cấu trúc (heading, list).",
   ].join("\n");

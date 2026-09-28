@@ -1,5 +1,7 @@
 # Editor Right-click "Gửi vào Trợ lý AI" Implementation Plan
 
+> Historical plan note: the original virtual/no-file snippet steps below were superseded by `docs/superpowers/specs/2026-09-27-multimodal-chat-history-design.md`. Current snippets are materialized as stored `chat-snippet.md` attachments so their context survives chat reloads.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Chuột phải trong note editor → menu tại con trỏ → đẩy đoạn chọn (attachment ảo) hoặc cả note (token @note) vào composer của Trợ lý AI; user tự gõ prompt.

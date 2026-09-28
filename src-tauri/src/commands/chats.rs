@@ -23,6 +23,14 @@ pub struct ChatAttachment {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct PendingDelete {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub role: String, // "user" | "assistant" | "system" | "tool"
     #[serde(default)]
@@ -39,6 +47,8 @@ pub struct ChatMessage {
     pub attachments: Option<Vec<ChatAttachment>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_deletes: Option<Vec<PendingDelete>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -176,6 +186,7 @@ mod tests {
                 mentions: None,
                 attachments: None,
                 error: None,
+                pending_deletes: None,
             }],
             updated: "2026-09-26T00:00:00Z".into(),
         }
@@ -209,6 +220,7 @@ mod tests {
             tool_call_id: None,
             name: None,
             error: Some("LLM 500: boom".into()),
+            pending_deletes: None,
             mentions: Some(vec![ChatMention { id: "n1".into(), title: "Roadmap".into() }]),
             attachments: Some(vec![ChatAttachment {
                 id: "a1".into(),
@@ -234,6 +246,18 @@ mod tests {
         let m: ChatMessage = serde_json::from_str(raw).unwrap();
         assert_eq!(m.content, "hi");
         assert!(m.mentions.is_none() && m.attachments.is_none() && m.error.is_none());
+    }
+
+    #[test]
+    fn pending_deletes_round_trip() {
+        let mut s = session("c3");
+        s.messages[0].pending_deletes = Some(vec![
+            PendingDelete { id: "n1".into(), title: "Một".into(), status: "pending".into() },
+            PendingDelete { id: "n2".into(), title: "Hai".into(), status: "cancelled".into() },
+        ]);
+        let raw = serde_json::to_string(&s).unwrap();
+        assert!(raw.contains("pendingDeletes"));
+        assert_eq!(serde_json::from_str::<ChatSession>(&raw).unwrap(), s);
     }
 
     #[test]

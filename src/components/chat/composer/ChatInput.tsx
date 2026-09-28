@@ -24,6 +24,7 @@ import {
   type PasteCommandType,
 } from "lexical";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useT } from "../../../lib/i18n";
 import { ContextTokenNode } from "./ContextTokenNode";
 
 const PASTE_TO_ATTACHMENT_CHARS = 2000;
@@ -168,6 +169,7 @@ function ReadyPlugin({ onReady }: { onReady: (editor: LexicalEditor) => void }) 
 
 /** Lexical-based chat input: plain text + atomic context tokens. */
 export function ChatInput(props: ChatInputProps) {
+  const t = useT();
   const initialConfig = useMemo(
     () => ({
       namespace: "ChatInput",
@@ -191,7 +193,7 @@ export function ChatInput(props: ChatInputProps) {
           contentEditable={
             <ContentEditable
               className="block max-h-[200px] min-h-[52px] w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 text-body text-fg outline-none"
-              aria-label="Tin nhắn cho trợ lý"
+              aria-label={t("chat.inputAriaLabel")}
             />
           }
           placeholder={

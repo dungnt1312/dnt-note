@@ -35,6 +35,11 @@ describe("buildSystemPrompt", () => {
     expect(p).toContain("Đang đọc");
     expect(p.toLowerCase()).toContain("xác nhận");
   });
+
+  it("instructs the model to link notes so the user can open them", () => {
+    const p = buildSystemPrompt({ total: 1, pinned: 0, words: 0, tags: 0 }, null, null);
+    expect(p).toContain("note://");
+  });
 });
 
 describe("runAgent", () => {

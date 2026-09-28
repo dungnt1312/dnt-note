@@ -19,13 +19,16 @@ import { useUi } from "../../lib/store/uiStore";
 import { useTheme } from "../theme/ThemeProvider";
 import { fuzzyRank } from "../../lib/fuzzy";
 import { shortDate } from "../../lib/dates";
+import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { Keycap } from "../ui/Button";
 import { ConfirmDialog, Overlay } from "../ui/Dialog";
 
+type PaletteGroup = "commands" | "recentNotes" | "notes" | "chats";
+
 interface PaletteItem {
   id: string;
-  group: "Lệnh" | "Ghi chú gần đây" | "Ghi chú" | "Hội thoại";
+  group: PaletteGroup;
   label: string;
   detail?: string;
   shortcut?: string;
@@ -41,6 +44,13 @@ export function CommandPalette() {
   const setChatOpen = useUi((s) => s.setChatOpen);
   const pushToast = useUi((s) => s.pushToast);
   const { setTheme } = useTheme();
+  const t = useT();
+  const groupLabels: Record<PaletteGroup, string> = {
+    commands: t("app.groupCommands"),
+    recentNotes: t("app.groupRecentNotes"),
+    notes: t("app.groupNotes"),
+    chats: t("app.groupChats"),
+  };
 
   const notes = useNotesStore((s) => s.notes);
   const select = useNotesStore((s) => s.select);
@@ -62,26 +72,26 @@ export function CommandPalette() {
 
   const items = useMemo(() => {
     const commands: PaletteItem[] = [
-      { id: "new-note", group: "Lệnh", label: "Ghi chú mới", shortcut: "Ctrl N", icon: <SquarePen size={15} />, run: () => {
+      { id: "new-note", group: "commands", label: t("app.cmdNewNote"), shortcut: "Ctrl N", icon: <SquarePen size={15} />, run: () => {
         setSection("notes");
         void create();
       } },
-      { id: "new-chat", group: "Lệnh", label: "Hội thoại mới", shortcut: "Ctrl ⇧ O", icon: <MessageSquare size={15} />, run: () => {
+      { id: "new-chat", group: "commands", label: t("app.cmdNewChat"), shortcut: "Ctrl ⇧ O", icon: <MessageSquare size={15} />, run: () => {
         void newChat();
         setSection("chat");
       } },
-      { id: "go-notes", group: "Lệnh", label: "Đi tới Ghi chú", shortcut: "Ctrl 1", icon: <FileText size={15} />, run: () => setSection("notes") },
-      { id: "go-chat", group: "Lệnh", label: "Đi tới Trợ lý AI", shortcut: "Ctrl 2", icon: <Sparkles size={15} />, run: () => setSection("chat") },
-      { id: "side-chat", group: "Lệnh", label: "Mở trợ lý cạnh ghi chú", shortcut: "Ctrl ⇧ J", icon: <Sparkles size={15} />, run: () => {
+      { id: "go-notes", group: "commands", label: t("app.cmdGoNotes"), shortcut: "Ctrl 1", icon: <FileText size={15} />, run: () => setSection("notes") },
+      { id: "go-chat", group: "commands", label: t("app.cmdGoChat"), shortcut: "Ctrl 2", icon: <Sparkles size={15} />, run: () => setSection("chat") },
+      { id: "side-chat", group: "commands", label: t("app.cmdChatDocked"), shortcut: "Ctrl ⇧ J", icon: <Sparkles size={15} />, run: () => {
         setSection("notes");
         setChatOpen(true);
       } },
-      { id: "sidebar", group: "Lệnh", label: "Ẩn/hiện thanh bên", shortcut: "Ctrl \\", icon: <PanelLeft size={15} />, run: toggleSidebar },
-      { id: "theme-light", group: "Lệnh", label: "Giao diện: Sáng", icon: <Sun size={15} />, run: () => setTheme("light") },
-      { id: "theme-dark", group: "Lệnh", label: "Giao diện: Tối", icon: <Moon size={15} />, run: () => setTheme("dark") },
-      { id: "theme-system", group: "Lệnh", label: "Giao diện: Theo hệ thống", icon: <Monitor size={15} />, run: () => setTheme("system") },
-      { id: "settings", group: "Lệnh", label: "Cài đặt", shortcut: "Ctrl ,", icon: <Settings size={15} />, run: () => setSection("settings") },
-      { id: "empty-trash", group: "Lệnh", label: "Dọn sạch thùng rác…", icon: <Trash2 size={15} />, run: () => setConfirmTrash(true) },
+      { id: "sidebar", group: "commands", label: t("app.cmdToggleSidebar"), shortcut: "Ctrl \\", icon: <PanelLeft size={15} />, run: toggleSidebar },
+      { id: "theme-light", group: "commands", label: t("app.cmdThemeLight"), icon: <Sun size={15} />, run: () => setTheme("light") },
+      { id: "theme-dark", group: "commands", label: t("app.cmdThemeDark"), icon: <Moon size={15} />, run: () => setTheme("dark") },
+      { id: "theme-system", group: "commands", label: t("app.cmdThemeSystem"), icon: <Monitor size={15} />, run: () => setTheme("system") },
+      { id: "settings", group: "commands", label: t("app.cmdSettings"), shortcut: "Ctrl ,", icon: <Settings size={15} />, run: () => setSection("settings") },
+      { id: "empty-trash", group: "commands", label: t("app.cmdEmptyTrash"), icon: <Trash2 size={15} />, run: () => setConfirmTrash(true) },
     ];
     const q = query.trim().toLowerCase();
     const cmd = fuzzyRank(commands, q, (c) => c.label.toLowerCase()).map((r) => r.item);
@@ -89,8 +99,8 @@ export function CommandPalette() {
       .slice(0, q ? 8 : 5)
       .map<PaletteItem>(({ item: n }) => ({
         id: `note-${n.id}`,
-        group: q ? "Ghi chú" : "Ghi chú gần đây",
-        label: n.title || "Chưa đặt tên",
+        group: q ? "notes" : "recentNotes",
+        label: n.title || t("app.untitled"),
         detail: shortDate(n.updated),
         icon: <FileText size={15} />,
         run: () => {
@@ -102,7 +112,7 @@ export function CommandPalette() {
       .slice(0, 5)
       .map<PaletteItem>((s) => ({
         id: `chat-${s.id}`,
-        group: "Hội thoại",
+        group: "chats",
         label: s.title,
         detail: shortDate(s.updated),
         icon: <MessageSquare size={15} />,
@@ -112,7 +122,7 @@ export function CommandPalette() {
         },
       }));
     return [...cmd, ...noteItems, ...chatItems];
-  }, [query, notes, sessions, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme]);
+  }, [query, notes, sessions, create, newChat, select, loadChat, setSection, setChatOpen, toggleSidebar, setTheme, t]);
 
   useEffect(() => setCursor(0), [query]);
 
@@ -129,7 +139,7 @@ export function CommandPalette() {
 
   return (
     <>
-      <Overlay open={open} onClose={close} label="Bảng lệnh" placement="top" className="w-[600px]">
+      <Overlay open={open} onClose={close} label={t("app.paletteLabel")} placement="top" className="w-[600px]">
         <div className="flex h-[52px] items-center gap-2.5 px-4">
           <Search size={16} aria-hidden="true" className="shrink-0 text-fg-tertiary" />
           <input
@@ -149,8 +159,8 @@ export function CommandPalette() {
                 if (item) runItem(item);
               }
             }}
-            placeholder="Tìm ghi chú, hội thoại hoặc lệnh…"
-            aria-label="Tìm ghi chú, hội thoại hoặc lệnh"
+            placeholder={t("app.searchPlaceholder")}
+            aria-label={t("app.searchLabel")}
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-list"
@@ -164,7 +174,7 @@ export function CommandPalette() {
         <div className="h-px bg-hairline" />
         <div ref={listRef} id="palette-list" role="listbox" className="max-h-[380px] overflow-y-auto p-1.5">
           {items.length === 0 && (
-            <p className="py-7 text-center text-callout text-fg-secondary">Không có kết quả cho “{query}”</p>
+            <p className="py-7 text-center text-callout text-fg-secondary">{t("app.noResults", { query })}</p>
           )}
           {items.map((item, i) => {
             const header = item.group !== lastGroup;
@@ -173,7 +183,7 @@ export function CommandPalette() {
               <div key={item.id}>
                 {header && (
                   <div role="presentation" className="px-2.5 pb-1 pt-2.5 text-footnote font-semibold text-fg-secondary">
-                    {item.group}
+                    {groupLabels[item.group]}
                   </div>
                 )}
                 <button
@@ -204,28 +214,28 @@ export function CommandPalette() {
         <div className="h-px bg-hairline" />
         <div className="flex h-[34px] items-center gap-4 px-3.5 text-caption text-fg-tertiary">
           <span className="flex items-center gap-1.5">
-            <Keycap>↑↓</Keycap> di chuyển
+            <Keycap>↑↓</Keycap> {t("app.navHint")}
           </span>
           <span className="flex items-center gap-1.5">
-            <Keycap>↵</Keycap> mở
+            <Keycap>↵</Keycap> {t("app.openHint")}
           </span>
           <span className="flex items-center gap-1.5">
-            <Keycap>Esc</Keycap> đóng
+            <Keycap>Esc</Keycap> {t("app.closeHint")}
           </span>
         </div>
       </Overlay>
       <ConfirmDialog
         open={confirmTrash}
-        title="Dọn sạch thùng rác?"
-        description="Mọi ghi chú trong thùng rác sẽ bị xóa vĩnh viễn và không thể khôi phục."
-        confirmLabel="Xóa vĩnh viễn"
+        title={t("settings.emptyTrashTitle")}
+        description={t("settings.emptyTrashDescription")}
+        confirmLabel={t("settings.deleteForever")}
         onCancel={() => setConfirmTrash(false)}
         onConfirm={() => {
           setConfirmTrash(false);
           void api.notes
             .emptyTrash()
-            .then((n) => pushToast({ message: `Đã xóa vĩnh viễn ${n} ghi chú`, durationMs: 4000 }))
-            .catch((e) => pushToast({ message: `Không dọn được thùng rác: ${e}`, durationMs: 6000 }));
+            .then((n) => pushToast({ message: t("settings.trashEmptied", { n }), durationMs: 4000 }))
+            .catch((e) => pushToast({ message: t("settings.emptyTrashError", { error: String(e) }), durationMs: 6000 }));
         }}
       />
     </>

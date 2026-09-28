@@ -60,4 +60,12 @@ describe("ProvidersSection models", () => {
     fireEvent.click(screen.getByRole("button", { name: "Bỏ model grok-4.5" }));
     expect(provider().models).toEqual(["gpt-4o"]);
   });
+
+  it("typing in the name field renames the provider", () => {
+    render(<ProvidersSection />);
+    const nameInput = screen.getByLabelText("Tên nhà cung cấp") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "ClipProxy" } });
+    expect(provider().name).toBe("ClipProxy");
+    expect(nameInput.value).toBe("ClipProxy");
+  });
 });
