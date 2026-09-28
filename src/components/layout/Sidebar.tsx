@@ -12,12 +12,14 @@ import {
   X,
 } from "lucide-react";
 import { useNotesStore } from "../../lib/store/notesStore";
+import type { NoteMeta } from "../../lib/api/notes";
 import { useChatStore } from "../../lib/store/chatStore";
 import { useUi, type Workspace } from "../../lib/store/uiStore";
 import { groupByTime } from "../../lib/dates";
 import { cn } from "../../lib/utils";
 import { NoteList } from "../notes/NoteList";
 import { FolderSection } from "../notes/FolderSection";
+import { MoveNoteDialog } from "../notes/MoveNoteDialog";
 import { IconButton, Keycap } from "../ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../ui/Menu";
 import { ConfirmDialog } from "../ui/Dialog";
@@ -189,6 +191,7 @@ function NotesPane() {
   const section = useUi((s) => s.section);
   const setSection = useUi((s) => s.setSection);
   const deleteNote = useDeleteNote();
+  const [moveTarget, setMoveTarget] = useState<NoteMeta | null>(null);
 
   const visible = notes
     .filter((n) =>
@@ -213,9 +216,11 @@ function NotesPane() {
           }}
           onDelete={deleteNote}
           onTogglePin={(id, pinned) => void setPinned(id, pinned)}
+          onMove={(id) => setMoveTarget(notes.find((n) => n.id === id) ?? null)}
           query={searchQuery}
         />
       </nav>
+      <MoveNoteDialog note={moveTarget} onClose={() => setMoveTarget(null)} />
     </>
   );
 }
