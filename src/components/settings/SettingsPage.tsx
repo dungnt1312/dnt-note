@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { FolderOpen, FolderSync, Trash2 } from "lucide-react";
+import { Copy, FolderOpen, FolderSync, Trash2 } from "lucide-react";
 import { api } from "../../lib/api/notes";
 import { syncApi } from "../../lib/api/attachments";
 import { useUi } from "../../lib/store/uiStore";
@@ -290,8 +290,62 @@ function AboutSection() {
         <Row label="DNT Note" description={t("settings.aboutDescription")}>
           <span className="text-footnote tabular-nums text-fg-secondary">{t("settings.version", { version: "0.1.0" })}</span>
         </Row>
-        <Row label="MCP server" description={t("settings.mcpDescription")} />
       </RowGroup>
+    </Section>
+  );
+}
+
+/** Copyable MCP config so external AI clients can reach the notes store. */
+function McpSection() {
+  const t = useT();
+  const pushToast = useUi((s) => s.pushToast);
+  const [config, setConfig] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // Placeholders match the README snippet; in the Tauri app both paths are
+      // real: in dev the MCP binary sits next to the app exe in target/debug.
+      let command = "C:\\path\\to\\dnt-note-mcp.exe";
+      let notesDir = "%APPDATA%\\com.dungnt.dntnote\\notes";
+      if (isTauri) {
+        try {
+          const { appDataDir, executableDir, join } = await import("@tauri-apps/api/path");
+          command = await join(await executableDir(), "dnt-note-mcp.exe");
+          notesDir = await join(await appDataDir(), "notes");
+        } catch {
+          // keep placeholders
+        }
+      }
+      if (!cancelled) {
+        setConfig(JSON.stringify({ mcpServers: { "dnt-note": { command, args: [notesDir] } } }, null, 2));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const copyConfig = () => {
+    void navigator.clipboard.writeText(config).then(
+      () => pushToast({ message: t("settings.mcpCopiedToast"), durationMs: 3000 }),
+      (e) => pushToast({ message: t("settings.mcpCopyError", { error: String(e) }), durationMs: 5000 }),
+    );
+  };
+
+  return (
+    <Section title="MCP server" description={t("settings.mcpDescription")}>
+      <RowGroup>
+        <Row label={t("settings.mcpConfigHint")}>
+          <SecondaryButton onClick={copyConfig} disabled={!config}>
+            <Copy size={14} aria-hidden="true" /> {t("settings.mcpCopyConfig")}
+          </SecondaryButton>
+        </Row>
+      </RowGroup>
+      <pre className="overflow-x-auto rounded-sm border border-hairline bg-app p-3 font-mono text-footnote leading-relaxed text-fg-secondary">
+        {config}
+      </pre>
+      <p className="text-footnote text-fg-secondary">{t("settings.mcpBuildHint")}</p>
     </Section>
   );
 }
@@ -401,6 +455,7 @@ export function SettingsPage() {
                 <AppearanceSection />
                 <LanguageSection />
                 <AboutSection />
+                <McpSection />
               </>
             )}
             {tab === "providers" && (

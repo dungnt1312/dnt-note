@@ -71,6 +71,8 @@ interface ChatState {
   newChat: () => Promise<void>;
   loadChat: (id: string) => Promise<void>;
   loadSessions: () => Promise<void>;
+  /** Reopen the chat active before the last reload; no-op when it no longer exists. */
+  restoreLastChat: () => Promise<void>;
   renameChat: (id: string, title: string) => Promise<void>;
   deleteChat: (id: string) => Promise<void>;
   stop: () => void;
@@ -81,6 +83,31 @@ export function newId(): string {
 }
 
 export const NEW_CHAT_TITLE = "Phiên chat mới";
+
+// Last active chat survives a reload; validated against the session list at boot.
+const LAST_CHAT_KEY = "dnt-last-chat-id";
+let chatRestoreAttempted = false;
+
+function rememberChatId(id: string): void {
+  try {
+    localStorage.setItem(LAST_CHAT_KEY, id);
+  } catch {
+    // storage unavailable — the session just won't reopen after a reload
+  }
+}
+
+function readLastChatId(): string | null {
+  try {
+    return localStorage.getItem(LAST_CHAT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Test hook: let `restoreLastChat` run again. */
+export function __resetChatRestore(): void {
+  chatRestoreAttempted = false;
+}
 
 /** One owned async operation at a time; navigation aborts and waits for it. */
 interface ActiveOperation {
@@ -462,6 +489,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const nextMessages = [...sourceMessages, userMsg, assistantMsg];
       set({ messages: nextMessages });
       accepted = true;
+      rememberChatId(sourceChatId);
       onAccepted?.();
 
       const notesState = useNotesStore.getState();
@@ -571,7 +599,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   confirmDelete: async (noteId) => {
     if (!hasPendingDelete(get().messages, noteId)) return;
-    await useNotesStore.getState().del(noteId);
+    const deleted = await useNotesStore.getState().del(noteId);
+    if (!deleted) {
+      useUi.getState().pushToast({ message: getT()("chat.toastNoteDeleteFailed") });
+      return;
+    }
     markDelete(set, noteId, "confirmed");
     await persistDeleteDecision(get, set);
     useUi.getState().pushToast({
@@ -595,6 +627,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       if (version !== navigationVersion || !(await flushCurrentDirtySession(get, set))) return;
       if (version !== navigationVersion) return;
       set({ chatId: newId(), chatTitle: NEW_CHAT_TITLE, messages: [], status: "idle", error: null });
+      rememberChatId(get().chatId);
     } finally {
       finishOperation(operation);
       finishNavigation(version);
@@ -628,6 +661,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         status: "idle",
         error: null,
       });
+      rememberChatId(session.id);
     } catch (e) {
       if (version === navigationVersion) console.error("load chat failed", e);
     } finally {
@@ -642,6 +676,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       set({ sessions: [...list].sort((a, b) => b.updated.localeCompare(a.updated)) });
     } catch (e) {
       console.error("list chats failed", e);
+    }
+  },
+
+  restoreLastChat: async () => {
+    if (chatRestoreAttempted) return;
+    chatRestoreAttempted = true;
+    const saved = readLastChatId();
+    if (!saved || saved === get().chatId) return;
+    await get().loadSessions();
+    if (get().chatId !== saved && get().sessions.some((s) => s.id === saved)) {
+      await get().loadChat(saved);
     }
   },
 
@@ -686,6 +731,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             : {}),
         };
       });
+      if (get().chatId !== id) rememberChatId(get().chatId);
     } catch (e) {
       console.error("delete chat failed", e);
       set({ error: e instanceof Error ? e.message : String(e) });

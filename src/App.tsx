@@ -17,6 +17,7 @@ import { useSettingsStore } from "./lib/store/settingsStore";
 import { useUi } from "./lib/store/uiStore";
 import { getT } from "./lib/i18n";
 import { openNoteById } from "./lib/openNote";
+import { initAttachmentsDir } from "./lib/media/attachmentUrl";
 
 function useDeepLinkAndSync() {
   useEffect(() => {
@@ -147,7 +148,13 @@ function Shell() {
   useShortcuts();
 
   useEffect(() => {
-    void load();
+    // Reload keeps the app in its previous state: reopen the last note and chat.
+    void (async () => {
+      await load();
+      await useNotesStore.getState().restoreSelection();
+    })();
+    void useChatStore.getState().restoreLastChat();
+    void initAttachmentsDir();
     void ensureLlmFetch();
     void useSettingsStore.getState().loadStore();
   }, [load]);

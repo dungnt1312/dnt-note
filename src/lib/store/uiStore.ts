@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export interface Toast {
   id: number;
@@ -42,7 +43,9 @@ interface UiState {
 let toastSeq = 0;
 let sectionBeforeSettings: Section = "notes";
 
-export const useUi = create<UiState>()((set, get) => ({
+export const useUi = create<UiState>()(
+  persist(
+    (set, get) => ({
   searchQuery: "",
   tagFilter: null,
   folderFilter: null,
@@ -88,4 +91,26 @@ export const useUi = create<UiState>()((set, get) => ({
   },
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-}));
+}),
+    {
+      name: "dnt-ui-state",
+      version: 1,
+      // Layout survives a reload; toasts/palette/settingsOpen are transient or derived.
+      partialize: (s) =>
+        ({
+          section: s.section,
+          workspace: s.workspace,
+          sidebarVisible: s.sidebarVisible,
+          chatOpen: s.chatOpen,
+          folderFilter: s.folderFilter,
+          tagFilter: s.tagFilter,
+          searchQuery: s.searchQuery,
+        }) as unknown as UiState,
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as Partial<UiState>) } as UiState;
+        merged.settingsOpen = merged.section === "settings";
+        return merged;
+      },
+    },
+  ),
+);

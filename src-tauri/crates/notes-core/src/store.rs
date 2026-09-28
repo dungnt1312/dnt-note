@@ -103,7 +103,7 @@ impl NotesStore {
     }
 
     pub fn read(&self, id: &str) -> Result<Note> {
-        let path = self.file_of(id);
+        let path = self.file_of(id)?;
         self.load_note_from(&path)
     }
 
@@ -210,7 +210,7 @@ impl NotesStore {
 
     /// Move the note file into `.trash/` (recoverable).
     pub fn delete(&mut self, id: &str) -> Result<()> {
-        let src = self.file_of(id);
+        let src = self.file_of(id)?;
         if !src.exists() {
             return Err(NoteError::NotFound(id.to_string()));
         }
@@ -225,11 +225,12 @@ impl NotesStore {
 
     /// Move a note back out of `.trash/`, bumping its `updated` stamp.
     pub fn restore(&mut self, id: &str) -> Result<Note> {
+        check_id(id)?;
         let src = self.trash_dir.join(format!("{}.md", id));
         if !src.exists() {
             return Err(NoteError::NotFound(id.to_string()));
         }
-        let dest = self.file_of(id);
+        let dest = self.file_of(id)?;
         fs::rename(&src, &dest)?;
         let mut note = self.load_note_from(&dest)?;
         note.updated = Utc::now();
@@ -523,8 +524,9 @@ impl NotesStore {
         Ok((text, total))
     }
 
-    fn file_of(&self, id: &str) -> PathBuf {
-        self.dir.join(format!("{}.md", id))
+    fn file_of(&self, id: &str) -> Result<PathBuf> {
+        check_id(id)?;
+        Ok(self.dir.join(format!("{}.md", id)))
     }
 
     fn load_note_from(&self, path: &Path) -> Result<Note> {
@@ -534,7 +536,7 @@ impl NotesStore {
 
     fn write_note(&self, note: &Note) -> Result<()> {
         let contents = note_file::serialize(note);
-        write_atomic(&self.file_of(&note.id), contents.as_bytes())?;
+        write_atomic(&self.file_of(&note.id)?, contents.as_bytes())?;
         Ok(())
     }
 }
@@ -549,6 +551,13 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+fn check_id(id: &str) -> Result<()> {
+    if !crate::history::valid_id(id) {
+        return Err(NoteError::Unknown("ID ghi chú không hợp lệ".into()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -633,6 +642,23 @@ mod tests {
         assert_eq!(restored.id, note.id);
         assert_eq!(store.list().len(), 1);
         assert!(!store.trash_dir.join(format!("{}.md", note.id)).exists());
+    }
+
+    #[test]
+    fn ipc_ids_cannot_escape_notes_dir() {
+        let (_tmp, mut store) = setup();
+        for bad in ["../x", "a/b", "a\\b", "C:x", "..", ".", "a..b"] {
+            assert!(store.read(bad).is_err(), "read {bad}");
+            assert!(store.delete(bad).is_err(), "delete {bad}");
+            assert!(store.restore(bad).is_err(), "restore {bad}");
+            assert!(
+                store
+                    .update(bad, NotePatch { body: Some("x".into()), ..Default::default() })
+                    .is_err(),
+                "update {bad}"
+            );
+        }
+        assert!(store.list().is_empty());
     }
 
     #[test]

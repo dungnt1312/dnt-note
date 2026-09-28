@@ -70,6 +70,11 @@ export const settingsDict = defineDict({
     "settings.aboutDescription": "Local-first notes, inspired by NoteStudio · Rust + Tauri",
     "settings.version": "Version {version}",
     "settings.mcpDescription": "dnt-note-mcp — lets external AI clients read and write notes",
+    "settings.mcpConfigHint": "Paste into your AI client config (ZCode, Claude Desktop…)",
+    "settings.mcpCopyConfig": "Copy config",
+    "settings.mcpCopiedToast": "MCP config copied",
+    "settings.mcpCopyError": "Couldn't copy MCP config: {error}",
+    "settings.mcpBuildHint": "Build the binary first: cd src-tauri && cargo build -p mcp-server",
 
     "settings.providerNameLabel": "Provider name",
     "settings.renameHint": "Click to rename",
@@ -180,6 +185,11 @@ export const settingsDict = defineDict({
     "settings.aboutDescription": "Ghi chú local-first, lấy cảm hứng từ NoteStudio · Rust + Tauri",
     "settings.version": "Phiên bản {version}",
     "settings.mcpDescription": "dnt-note-mcp — cho AI client bên ngoài đọc và ghi ghi chú",
+    "settings.mcpConfigHint": "Dán vào cấu hình AI client của bạn (ZCode, Claude Desktop…)",
+    "settings.mcpCopyConfig": "Copy cấu hình",
+    "settings.mcpCopiedToast": "Đã sao chép cấu hình MCP",
+    "settings.mcpCopyError": "Không sao chép được cấu hình MCP: {error}",
+    "settings.mcpBuildHint": "Build binary trước: cd src-tauri && cargo build -p mcp-server",
 
     "settings.providerNameLabel": "Tên nhà cung cấp",
     "settings.renameHint": "Bấm để đổi tên",

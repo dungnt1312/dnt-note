@@ -60,3 +60,66 @@ describe("uiStore sections", () => {
     expect(useUi.getState()).toMatchObject({ section: "chat", settingsOpen: false });
   });
 });
+
+describe("uiStore persistence", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useUi.setState({
+      searchQuery: "",
+      tagFilter: null,
+      folderFilter: null,
+      section: "notes",
+      workspace: "notes",
+      sidebarVisible: true,
+      chatOpen: false,
+      settingsOpen: false,
+      toasts: [],
+      paletteOpen: false,
+    });
+  });
+
+  it("writes layout state to localStorage and skips transient fields", () => {
+    useUi.getState().setSection("chat");
+    useUi.getState().setChatOpen(true);
+    useUi.getState().toggleSidebar();
+    useUi.getState().pushToast({ message: "t" });
+
+    const raw = localStorage.getItem("dnt-ui-state");
+    expect(raw).toBeTruthy();
+    const saved = JSON.parse(raw!) as { state: Record<string, unknown> };
+    expect(saved.state).toMatchObject({ section: "chat", workspace: "chat", chatOpen: true, sidebarVisible: false });
+    expect(saved.state.toasts).toBeUndefined();
+    expect(saved.state.paletteOpen).toBeUndefined();
+  });
+
+  it("restores layout after a reload and derives settingsOpen from the section", async () => {
+    localStorage.setItem(
+      "dnt-ui-state",
+      JSON.stringify({
+        state: {
+          section: "settings",
+          workspace: "chat",
+          sidebarVisible: false,
+          chatOpen: true,
+          folderFilter: "Work",
+          tagFilter: "a",
+          searchQuery: "q",
+        },
+        version: 1,
+      }),
+    );
+
+    await useUi.persist.rehydrate();
+
+    expect(useUi.getState()).toMatchObject({
+      section: "settings",
+      workspace: "chat",
+      sidebarVisible: false,
+      chatOpen: true,
+      folderFilter: "Work",
+      tagFilter: "a",
+      searchQuery: "q",
+      settingsOpen: true,
+    });
+  });
+});

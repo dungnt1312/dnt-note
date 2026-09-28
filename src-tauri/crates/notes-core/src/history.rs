@@ -25,7 +25,9 @@ pub fn history_root(notes_dir: &Path) -> PathBuf {
     notes_dir.join(".history")
 }
 
-fn valid_id(id: &str) -> bool {
+/// A note id safe to join onto the notes dir: no separators, traversal or
+/// drive-letter colons (ids are uuids in practice; this guards raw IPC input).
+pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id != "."
         && !id.contains("..")

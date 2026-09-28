@@ -34,7 +34,7 @@ vi.mock("../api/attachments", () => ({
 import { api } from "../api/chats";
 import { runAgent } from "../agent/engine";
 import { attachmentsApi } from "../api/attachments";
-import { useChatStore, newId, type MentionInput } from "./chatStore";
+import { useChatStore, newId, __resetChatRestore, type MentionInput } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
 import { api as notesApi } from "../api/notes";
 
@@ -892,5 +892,64 @@ describe("chatStore", () => {
     expect(msgs).toHaveLength(2);
     expect(msgs[0].content).toBe("câu hỏi");
     expect(runAgentMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("chatStore restoreLastChat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    __resetChatRestore();
+    saveMock.mockReset().mockResolvedValue(undefined);
+    loadMock.mockReset().mockImplementation(
+      async (id: string) => ({ id, title: `t-${id}`, messages: [], updated: "" }) as never,
+    );
+    deleteMock.mockReset().mockResolvedValue(undefined);
+    vi.mocked(api.chats.list).mockReset().mockResolvedValue([{ id: "c9", title: "old session", updated: "2026-01-01T00:00:00Z" }]);
+    useChatStore.setState({
+      chatId: "fresh",
+      chatTitle: "Phiên chat mới",
+      messages: [],
+      status: "idle",
+      error: null,
+      sessions: [],
+    });
+  });
+
+  it("reopens the last active chat after a reload", async () => {
+    await useChatStore.getState().loadChat("c9");
+    expect(localStorage.getItem("dnt-last-chat-id")).toBe("c9");
+
+    // Simulate a reload: a brand-new chat is current and the history is unfetched.
+    useChatStore.setState({ chatId: "fresh", messages: [], sessions: [] });
+    __resetChatRestore();
+    await useChatStore.getState().restoreLastChat();
+
+    expect(useChatStore.getState().chatId).toBe("c9");
+    expect(useChatStore.getState().chatTitle).toBe("t-c9");
+  });
+
+  it("keeps the fresh chat when the remembered session no longer exists", async () => {
+    localStorage.setItem("dnt-last-chat-id", "deleted");
+    await useChatStore.getState().restoreLastChat();
+
+    expect(useChatStore.getState().chatId).toBe("fresh");
+    expect(loadMock).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the backend without a remembered chat", async () => {
+    await useChatStore.getState().restoreLastChat();
+
+    expect(api.chats.list).not.toHaveBeenCalled();
+  });
+
+  it("does not reopen twice when the restore already ran", async () => {
+    localStorage.setItem("dnt-last-chat-id", "c9");
+    await useChatStore.getState().restoreLastChat();
+    expect(useChatStore.getState().chatId).toBe("c9");
+
+    useChatStore.setState({ chatId: "fresh" });
+    await useChatStore.getState().restoreLastChat();
+    expect(useChatStore.getState().chatId).toBe("fresh");
   });
 });

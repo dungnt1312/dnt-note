@@ -296,3 +296,50 @@ describe("notesStore folders", () => {
     expect(useNotesStore.getState().folders).toEqual(["Work"]);
   });
 });
+
+describe("notesStore last-open note", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    useNotesStore.setState({
+      notes: [],
+      tags: [],
+      folders: [],
+      selectedId: null,
+      body: null,
+      saveState: "saved",
+      lastDeleted: null,
+    });
+    vi.clearAllMocks();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("remembers the selected note and restoreSelection reopens it after a reload", async () => {
+    await useNotesStore.getState().select("n1");
+    expect(localStorage.getItem("dnt-last-note-id")).toBe("n1");
+
+    // Simulate a reload: the selection is gone, the list is loaded fresh.
+    useNotesStore.setState({ selectedId: null, body: null });
+    await useNotesStore.getState().load();
+    await useNotesStore.getState().restoreSelection();
+
+    expect(useNotesStore.getState().selectedId).toBe("n1");
+    expect(useNotesStore.getState().body).toBe("body of n1");
+  });
+
+  it("does not restore a note that no longer exists", async () => {
+    localStorage.setItem("dnt-last-note-id", "gone");
+    await useNotesStore.getState().load();
+    await useNotesStore.getState().restoreSelection();
+
+    expect(useNotesStore.getState().selectedId).toBeNull();
+    expect(mocked.read).not.toHaveBeenCalled();
+  });
+
+  it("forgets the remembered note when it is deleted", async () => {
+    await useNotesStore.getState().select("n1");
+    await useNotesStore.getState().del("n1");
+
+    expect(localStorage.getItem("dnt-last-note-id")).toBeNull();
+  });
+});

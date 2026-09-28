@@ -39,7 +39,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/com.dungnt.dntnote/attachments/**"]
+        "scope": ["$APPDATA/attachments/**"]
       }
     }
   },

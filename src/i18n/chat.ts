@@ -102,6 +102,7 @@ export const chatDict = defineDict({
     "chat.errNoModel": "“{provider}” has no models — open Settings → AI providers to add one.",
     "chat.errAborted": "The submission was cancelled.",
     "chat.toastNoteDeleted": "Note deleted",
+    "chat.toastNoteDeleteFailed": "Couldn't delete the note — it was left untouched",
     "chat.toastUndo": "Undo",
 
     // MentionPlugin
@@ -210,6 +211,7 @@ export const chatDict = defineDict({
     "chat.errNoModel": "“{provider}” chưa có model nào — mở Cài đặt → Nhà cung cấp AI để thêm model.",
     "chat.errAborted": "Lượt gửi đã bị hủy.",
     "chat.toastNoteDeleted": "Đã xóa ghi chú",
+    "chat.toastNoteDeleteFailed": "Không xóa được ghi chú — ghi chú vẫn còn nguyên",
     "chat.toastUndo": "Hoàn tác",
 
     // MentionPlugin

@@ -21,7 +21,8 @@ interface NotesState {
   load: () => Promise<void>;
   select: (id: string) => Promise<void>;
   create: () => Promise<string | null>;
-  del: (id: string) => Promise<void>;
+  /** Delete a note. Resolves to true when deleted, false on failure. */
+  del: (id: string) => Promise<boolean>;
   undoDelete: () => Promise<void>;
   setTitle: (id: string, title: string) => Promise<void>;
   setPinned: (id: string, pinned: boolean) => Promise<void>;
@@ -32,6 +33,8 @@ interface NotesState {
   refreshTags: () => Promise<void>;
   /** Replace the open note's body with the on-disk version (after external edits). */
   reloadBody: (id: string) => Promise<void>;
+  /** Reopen the note selected before the last reload; no-op when it no longer exists. */
+  restoreSelection: () => Promise<void>;
   loadFolders: () => Promise<void>;
   /** Returns an error message on failure, null on success. */
   createFolder: (name: string) => Promise<string | null>;
@@ -44,6 +47,25 @@ interface NotesState {
 }
 
 const AUTOSAVE_MS = 600;
+
+// Last-open note survives a reload; validated against the fresh list at boot.
+const LAST_NOTE_KEY = "dnt-last-note-id";
+
+function rememberLastNote(id: string): void {
+  try {
+    localStorage.setItem(LAST_NOTE_KEY, id);
+  } catch {
+    // storage unavailable (private mode / quota) — selection just won't restore
+  }
+}
+
+function readLastNote(): string | null {
+  try {
+    return localStorage.getItem(LAST_NOTE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 // Module-level debounced saver — one editor is open at a time.
 // The note id is captured when scheduling, so a save can never land in another note.
@@ -123,6 +145,7 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     if (prevId === id) return;
     const seq = ++selectSeq;
     scheduleSave.cancel();
+    rememberLastNote(id);
     // body null unmounts the editor, so nothing can be typed mid-switch.
     set({ selectedId: id, body: null, saveState: "saved" });
     const toast = useUi.getState().pushToast;
@@ -178,19 +201,26 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     const note = get().notes.find((n) => n.id === id);
     try {
       await api.notes.del(id);
-      const wasSelected = get().selectedId === id;
-      if (wasSelected) {
-        scheduleSave.cancel();
-        set({ selectedId: null, body: null, saveState: "saved" });
-      }
-      set((s) => ({
-        notes: s.notes.filter((n) => n.id !== id),
-        lastDeleted: { id, title: note?.title ?? id },
-      }));
-      await get().refreshTags();
     } catch (e) {
       console.error("delete failed", e);
+      return false;
     }
+    const wasSelected = get().selectedId === id;
+    if (wasSelected) {
+      scheduleSave.cancel();
+      try {
+        localStorage.removeItem(LAST_NOTE_KEY);
+      } catch {
+        // ignore
+      }
+      set({ selectedId: null, body: null, saveState: "saved" });
+    }
+    set((s) => ({
+      notes: s.notes.filter((n) => n.id !== id),
+      lastDeleted: { id, title: note?.title ?? id },
+    }));
+    await get().refreshTags();
+    return true;
   },
 
   undoDelete: async () => {
@@ -258,6 +288,13 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
     if (get().selectedId !== id) return;
     scheduleSave.cancel();
     set({ body: note.body, saveState: "saved" });
+  },
+
+  restoreSelection: async () => {
+    if (get().selectedId !== null) return;
+    const saved = readLastNote();
+    if (!saved || !get().notes.some((n) => n.id === saved)) return;
+    await get().select(saved);
   },
 
   refreshTags: async () => {

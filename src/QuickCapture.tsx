@@ -12,11 +12,13 @@ export default function QuickCapture() {
   const t = useT();
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const hide = () => {
     if (isTauri) void getCurrentWindow().hide();
     setText("");
+    setError(null);
   };
 
   const save = async () => {
@@ -31,9 +33,13 @@ export default function QuickCapture() {
         const { emit } = await import("@tauri-apps/api/event");
         await emit("notes://created", null);
       }
+      hide();
+    } catch (e) {
+      // Keep the text so a failed save doesn't lose what was typed.
+      console.error("quick capture save failed", e);
+      setError(t("app.quickSaveError"));
     } finally {
       setSaving(false);
-      hide();
     }
   };
 
@@ -63,7 +69,10 @@ export default function QuickCapture() {
         ref={inputRef}
         autoFocus
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setError(null);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -78,7 +87,9 @@ export default function QuickCapture() {
         className="flex-1 resize-none bg-transparent px-4 py-2 text-body text-fg outline-none"
       />
       <div aria-live="polite" className="flex items-center gap-3 px-4 pb-3 text-caption text-fg-tertiary">
-        {saving ? (
+        {error ? (
+          <span className="text-danger">{error}</span>
+        ) : saving ? (
           t("app.quickSaving")
         ) : (
           <>
