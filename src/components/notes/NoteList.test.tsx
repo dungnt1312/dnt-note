@@ -9,6 +9,7 @@ function meta(id: string, title: string, extra: Partial<NoteMeta> = {}): NoteMet
     title,
     tags: [],
     pinned: false,
+    folder: null,
     created: "2026-01-01T00:00:00Z",
     updated: "2026-01-01T00:00:00Z",
     snippet: `${title} snippet`,
