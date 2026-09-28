@@ -12,6 +12,8 @@ struct Frontmatter {
     title: String,
     tags: Vec<String>,
     pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
     created: Option<DateTime<Utc>>,
     updated: Option<DateTime<Utc>>,
 }
@@ -35,6 +37,7 @@ pub fn parse(contents: &str) -> Result<Note> {
         },
         tags: fm.tags,
         pinned: fm.pinned,
+        folder: fm.folder,
         created: fm.created.unwrap_or(now),
         updated: fm.updated.unwrap_or(now),
         body: body.to_string(),
@@ -48,6 +51,7 @@ pub fn serialize(note: &Note) -> String {
         title: note.title.clone(),
         tags: note.tags.clone(),
         pinned: note.pinned,
+        folder: note.folder.clone(),
         created: Some(note.created),
         updated: Some(note.updated),
     };
@@ -85,6 +89,7 @@ mod tests {
             title: "Ghi chú: tiếng Việt".into(),
             tags: vec!["work".into(), "a:b".into()],
             pinned: true,
+            folder: None,
             created: DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap().into(),
             updated: DateTime::parse_from_rfc3339("2026-01-02T00:00:00Z").unwrap().into(),
             body: "line1\n\n---\n\nline2".into(),
@@ -135,6 +140,23 @@ mod tests {
         let parsed = parse(&serialize(&note)).unwrap();
         assert_eq!(parsed.title, note.title);
         assert_eq!(parsed.tags, note.tags);
+    }
+
+    #[test]
+    fn folder_round_trips_when_present() {
+        let mut note = sample_note();
+        note.folder = Some("Công việc".into());
+        let parsed = parse(&serialize(&note)).unwrap();
+        assert_eq!(parsed.folder, Some("Công việc".into()));
+    }
+
+    #[test]
+    fn folder_is_none_when_field_missing() {
+        let parsed = parse("---\nid: x\n---\nbody").unwrap();
+        assert_eq!(parsed.folder, None);
+        // Old files without `folder` serialize without the field (no `folder: null`).
+        let out = serialize(&parsed);
+        assert!(!out.contains("folder"));
     }
 
     #[test]

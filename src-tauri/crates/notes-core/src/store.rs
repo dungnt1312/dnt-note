@@ -64,6 +64,7 @@ impl NotesStore {
                             title: format!("⚠ {}", name),
                             tags: vec![],
                             pinned: false,
+                            folder: None,
                             created: now,
                             updated: now,
                             snippet: "(file frontmatter lỗi — sửa trực tiếp trong file .md)"
@@ -99,6 +100,7 @@ impl NotesStore {
             title: title.trim().to_string(),
             tags,
             pinned: false,
+            folder: None,
             created: now,
             updated: now,
             body: body.to_string(),
