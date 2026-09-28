@@ -147,7 +147,8 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let notes_dir = app_data_notes_dir(&handle);
-            let mut notes_store = NotesStore::new(notes_dir.clone())
+            let folders_path = app_data_dir(&handle).join("folders.json");
+            let mut notes_store = NotesStore::new(notes_dir.clone(), folders_path)
                 .map_err(|e| format!("init store: {e}"))?;
 
             if !is_onboarded(&handle) {
@@ -171,6 +172,8 @@ pub fn run() {
                 // must still protect their attachments on both sides.
                 let sync_dir = get_sync_dir(&handle);
                 let mut refs = notes_store.attachment_refs();
+                // Chat-attached files must survive orphan cleanup too.
+                refs.extend(commands::chats::chats_attachment_names(&handle));
                 if let Some(d) = &sync_dir {
                     refs.extend(notes_core::attachments::refs_in_dir(d));
                 }
@@ -306,6 +309,11 @@ pub fn run() {
             commands::notes::get_backlinks,
             commands::notes::list_tags,
             commands::notes::empty_trash,
+            commands::notes::list_folders,
+            commands::notes::create_folder,
+            commands::notes::rename_folder,
+            commands::notes::delete_folder,
+            commands::notes::move_note_to_folder,
             commands::notes::list_trash,
             commands::notes::purge_trash_item,
             commands::stats::get_stats,
@@ -320,6 +328,8 @@ pub fn run() {
             commands::chats::delete_chat,
             commands::attachments::attach_file,
             commands::attachments::list_attachments,
+            commands::attachments::import_attachment,
+            commands::attachments::import_attachment_bytes,
             commands::attachments::extract_attachment_text,
             commands::attachments::prepare_attachment_image,
             commands::attachments::cleanup_orphan_attachments,

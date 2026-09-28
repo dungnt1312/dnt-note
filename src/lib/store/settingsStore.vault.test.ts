@@ -21,7 +21,7 @@ import { useSettingsStore, __resetStoreCache } from "./settingsStore";
 import { useUi } from "./uiStore";
 
 const prov = (over: Record<string, unknown> = {}) => ({
-  id: "p_1", name: "OpenAI", baseUrl: "https://api.openai.com", model: "m", apiKey: "", ...over,
+  id: "p_1", name: "OpenAI", baseUrl: "https://api.openai.com", model: "m", models: ["m"], apiKey: "", ...over,
 });
 
 describe("settingsStore credential vault (Tauri)", () => {

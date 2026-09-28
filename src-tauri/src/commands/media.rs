@@ -39,7 +39,7 @@ pub fn import_media(app: tauri::AppHandle, src_path: String) -> CmdResult<Stored
     let dir = attachments_dir(&app)?;
     let name = attachments::save_file(&dir, &PathBuf::from(&src_path)).map_err(err_of)?;
     let size = std::fs::metadata(dir.join(&name)).map(|m| m.len()).unwrap_or(0);
-    Ok(StoredFile { name, size })
+    Ok(StoredFile { path: dir.join(&name).to_string_lossy().into_owned(), name, size })
 }
 
 /// Store pasted/recorded bytes; the frontend inserts the link at the cursor.
@@ -68,7 +68,7 @@ pub fn attach_bytes(
         .map_err(|e| format!("attachment-error: base64: {e}"))?;
     let dir = attachments_dir(&app)?;
     let name = attachments::save_bytes(&dir, &file_name, &bytes).map_err(err_of)?;
-    Ok(StoredFile { name, size: bytes.len() as u64 })
+    Ok(StoredFile { path: dir.join(&name).to_string_lossy().into_owned(), name, size: bytes.len() as u64 })
 }
 
 #[tauri::command]
@@ -88,5 +88,5 @@ pub fn import_media_bytes(app: tauri::AppHandle, file_name: String, base64: Stri
         .map_err(|e| format!("attachment-error: base64: {e}"))?;
     let dir = attachments_dir(&app)?;
     let name = attachments::save_bytes(&dir, &file_name, &bytes).map_err(err_of)?;
-    Ok(StoredFile { name, size: bytes.len() as u64 })
+    Ok(StoredFile { path: dir.join(&name).to_string_lossy().into_owned(), name, size: bytes.len() as u64 })
 }

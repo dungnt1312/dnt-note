@@ -1,5 +1,6 @@
 pub mod attachments;
 pub mod error;
+pub mod folders;
 pub mod history;
 pub mod media;
 pub mod note;

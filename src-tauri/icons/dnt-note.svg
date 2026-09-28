@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <mask id="dn-cut" maskUnits="userSpaceOnUse" x="14" y="12" width="100" height="104">
+      <rect x="14" y="12" width="100" height="104" fill="white"/>
+      <path d="M38 90V40h12l29 34V40h12v50H79L50 56v34H38Z" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#171717"/>
+  <g mask="url(#dn-cut)" fill="#F7F7F5">
+    <path d="M31 20h47v17c0 9 7 16 16 16h16v42c0 8-6 14-14 14H31c-8 0-13-6-13-14V34c0-8 5-14 13-14Z"/>
+    <path d="M84 20v17c0 5 4 10 10 10h16L84 20Z"/>
+  </g>
+</svg>

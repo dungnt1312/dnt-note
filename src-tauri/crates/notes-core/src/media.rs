@@ -320,7 +320,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("att");
         fs::create_dir_all(&dir).unwrap();
-        let store = NotesStore::new(tmp.path().join("notes")).unwrap();
+        let store = NotesStore::new(tmp.path().join("notes"), tmp.path().join("folders.json")).unwrap();
         (tmp, dir, store)
     }
 
@@ -348,7 +348,7 @@ mod tests {
         fs::write(dir.join(&a), "aa").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(dir.join("b.mp3"), "b").unwrap();
-        let n = store.create("Note A", &format!("x ![i](attachments/{a})"), vec![]).unwrap();
+        let n = store.create("Note A", &format!("x ![i](attachments/{a})"), vec![], None).unwrap();
 
         let items = list_media(&dir, &store).unwrap();
         assert_eq!(items.len(), 2);
@@ -367,7 +367,7 @@ mod tests {
         let (_t, dir, mut store) = setup();
         let old = format!("{U}-old.png");
         fs::write(dir.join(&old), "x").unwrap();
-        let n = store.create("N", &format!("a ![p](attachments/{old}) b [q](attachments/{old})"), vec![]).unwrap();
+        let n = store.create("N", &format!("a ![p](attachments/{old}) b [q](attachments/{old})"), vec![], None).unwrap();
 
         let new = rename_media(&dir, &mut store, &old, "new name").unwrap();
         assert_eq!(new, format!("{U}-new name.png"));
@@ -386,7 +386,7 @@ mod tests {
         let (_t, dir, mut store) = setup();
         let old = "11111111-1111-1111-1111-111111111111-my pic.png";
         fs::write(dir.join(old), "x").unwrap();
-        let n = store.create("N", "a ![p](attachments/11111111-1111-1111-1111-111111111111-my%20pic.png) b", vec![]).unwrap();
+        let n = store.create("N", "a ![p](attachments/11111111-1111-1111-1111-111111111111-my%20pic.png) b", vec![], None).unwrap();
         let new = rename_media(&dir, &mut store, old, "new name").unwrap();
         assert_eq!(new, "11111111-1111-1111-1111-111111111111-new name.png");
         let body = store.read(&n.id).unwrap().body;
@@ -402,12 +402,12 @@ mod tests {
         let old = format!("{U}-img (1).png");
         fs::write(dir.join(&old), "x").unwrap();
         let n = store
-            .create("N", &format!("a ![p](attachments/{U}-img%20%281%29.png) b [q](attachments/{old}) c"), vec![])
+            .create("N", &format!("a ![p](attachments/{U}-img%20%281%29.png) b [q](attachments/{old}) c"), vec![], None)
             .unwrap();
         let new = rename_media(&dir, &mut store, &old, "x y%").unwrap();
         let enc = format!("{U}-x%20y%25.png");
         assert_eq!(store.read(&n.id).unwrap().body, format!("a ![p](attachments/{enc}) b [q](attachments/{enc}) c"));
-        let m = store.create("M", &format!("s ![p](attachments/{U}-x%20y%25%2Epng) t"), vec![]).unwrap();
+        let m = store.create("M", &format!("s ![p](attachments/{U}-x%20y%25%2Epng) t"), vec![], None).unwrap();
         delete_media(&dir, &mut store, &new, true).unwrap();
         assert_eq!(store.read(&n.id).unwrap().body, "a  b  c");
         assert_eq!(store.read(&m.id).unwrap().body, "s  t");
@@ -427,7 +427,7 @@ mod tests {
         let f = format!("{U}-img (1).png");
         fs::write(dir.join(&f), "x").unwrap();
         let n = store
-            .create("N", &format!("before ![alt [x]](attachments/{f}) mid [doc](attachments/{f}) after"), vec![])
+            .create("N", &format!("before ![alt [x]](attachments/{f}) mid [doc](attachments/{f}) after"), vec![], None)
             .unwrap();
 
         assert!(delete_media(&dir, &mut store, &f, false).is_err());
@@ -446,7 +446,7 @@ mod tests {
         let (_t, dir, mut store) = setup();
         let f = format!("{U}-t.png");
         fs::write(dir.join(&f), "x").unwrap();
-        let n = store.create("T", &format!("![a](attachments/{f})"), vec![]).unwrap();
+        let n = store.create("T", &format!("![a](attachments/{f})"), vec![], None).unwrap();
         store.delete(&n.id).unwrap();
         assert!(delete_media(&dir, &mut store, &f, false).is_err());
         let e = delete_media(&dir, &mut store, &f, true).unwrap_err().to_string();
@@ -467,7 +467,7 @@ mod tests {
         let (_t, dir, mut store) = setup();
         let old = format!("{U}-o.png");
         fs::write(dir.join(&old), "x").unwrap();
-        let n = store.create("T", &format!("![a](attachments/{old})"), vec![]).unwrap();
+        let n = store.create("T", &format!("![a](attachments/{old})"), vec![], None).unwrap();
         store.delete(&n.id).unwrap();
         let trashed = store.trash_dir().join(format!("{}.md", n.id));
         let before = fs::read_to_string(&trashed).unwrap();

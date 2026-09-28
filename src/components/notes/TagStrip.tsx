@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { useT } from "../../lib/i18n";
 
 interface TagStripProps {
   tags: string[];
@@ -12,29 +13,30 @@ export function normalizeTag(raw: string): string {
 
 /** Tags right under the title (Notion style): `#tag` chips + a ghost "Thêm thẻ" chip. */
 export function TagStrip({ tags, onChange }: TagStripProps) {
+  const t = useT();
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commit = () => {
-    const t = normalizeTag(draft);
-    if (t && !tags.includes(t)) onChange([...tags, t]);
+    const t2 = normalizeTag(draft);
+    if (t2 && !tags.includes(t2)) onChange([...tags, t2]);
     setDraft("");
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Thẻ">
-      {tags.map((t) => (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("notes.tagsGroupLabel")}>
+      {tags.map((tg) => (
         <span
-          key={t}
+          key={tg}
           className="group/tag inline-flex h-6 items-center rounded-full bg-hover px-2.5 text-footnote font-medium text-fg-secondary focus-within:pr-1.5 hover:pr-1.5"
         >
-          #{t}
+          #{tg}
           <button
             type="button"
-            aria-label={`Xóa thẻ ${t}`}
-            title="Xóa thẻ"
-            onClick={() => onChange(tags.filter((x) => x !== t))}
+            aria-label={t("notes.removeTagAria", { tag: tg })}
+            title={t("notes.removeTag")}
+            onClick={() => onChange(tags.filter((x) => x !== tg))}
             className="flex h-4 w-0 items-center justify-center overflow-hidden rounded-full text-fg-tertiary hover:bg-selected hover:text-fg group-focus-within/tag:ml-1 group-focus-within/tag:w-4 group-hover/tag:ml-1 group-hover/tag:w-4"
           >
             <X size={10} strokeWidth={2.5} aria-hidden="true" />
@@ -46,8 +48,8 @@ export function TagStrip({ tags, onChange }: TagStripProps) {
           ref={inputRef}
           autoFocus
           value={draft}
-          aria-label="Tên thẻ mới"
-          placeholder="tên thẻ"
+          aria-label={t("notes.newTagNameAria")}
+          placeholder={t("notes.newTagPlaceholder")}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
@@ -71,11 +73,11 @@ export function TagStrip({ tags, onChange }: TagStripProps) {
         <button
           type="button"
           onClick={() => setAdding(true)}
-          aria-label="Thêm thẻ"
+          aria-label={t("notes.addTag")}
           className="inline-flex h-6 items-center gap-1 rounded-full px-2 text-footnote font-medium text-fg-tertiary transition-colors hover:bg-hover hover:text-fg-secondary"
         >
           <Plus size={11} strokeWidth={2.5} aria-hidden="true" />
-          {tags.length === 0 && "Thêm thẻ"}
+          {tags.length === 0 && t("notes.addTag")}
         </button>
       )}
     </div>

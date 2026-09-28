@@ -9,6 +9,9 @@ pub struct Note {
     pub title: String,
     pub tags: Vec<String>,
     pub pinned: bool,
+    /// One-level folder name; `None` = unfiled (root). Lives in frontmatter
+    /// so the sync mirror carries it without touching the flat file layout.
+    pub folder: Option<String>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub body: String,
@@ -22,6 +25,7 @@ pub struct NoteMeta {
     pub title: String,
     pub tags: Vec<String>,
     pub pinned: bool,
+    pub folder: Option<String>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub snippet: String,
@@ -35,6 +39,7 @@ impl From<&Note> for NoteMeta {
             title: note.title.clone(),
             tags: note.tags.clone(),
             pinned: note.pinned,
+            folder: note.folder.clone(),
             created: note.created,
             updated: note.updated,
             snippet: snippet_of(&note.body),

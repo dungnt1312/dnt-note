@@ -18,7 +18,10 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| default_data_dir().join("notes"));
 
-    let mut store = match NotesStore::new(notes_dir.clone()) {
+    let mut store = match NotesStore::new(
+        notes_dir.clone(),
+        notes_dir.with_file_name("folders.json"),
+    ) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("dnt-note-mcp: cannot open notes dir {:?}: {e}", notes_dir);

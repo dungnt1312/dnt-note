@@ -35,7 +35,7 @@ import { embed } from "../llm/openai";
 import { semanticApi } from "../api/semantic";
 import { INDEXING_DISABLED, cosine, topK, staleIds, pruneDeleted, ensureIndex, semanticSearch, type EmbeddingIndex } from ".";
 
-const provider = { id: "p", name: "P", baseUrl: "http://x", model: "m", apiKey: "", embeddingModel: "e1" };
+const provider = { id: "p", name: "P", baseUrl: "http://x", model: "m", apiKey: "", embeddingModel: "e1", models: ["m"] };
 
 describe("pure helpers", () => {
   it("cosine", () => {

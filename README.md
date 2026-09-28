@@ -9,7 +9,7 @@
 
 ### 📝 Notes core
 - **Editor Markdown live-preview kiểu Obsidian** (CodeMirror 6): heading/bold/italic/code render
-  ngay trong editor, dòng đang focus hiện mã nguồn thô, checkbox click được
+  ngay trong editor, dòng đang focus hiện mã nguồn thô, checkbox click được, FormatBar toolbar
 - Lưu **file `.md`** + YAML frontmatter, autosave 600ms (ghi atomic), thùng rác + **Ctrl+Z hoàn tác**
 - Tìm kiếm tức thời, command palette **Ctrl+K** fuzzy search, tags, ghim note, theme Sáng/Tối/Hệ thống
 - **File watcher**: sửa file ngoài app (editor khác, git, MCP, cloud) → app cập nhật ~1s
@@ -22,21 +22,27 @@
   qua model của provider
 
 ### 🤖 AI assistant (agent)
-- Chat panel bên phải với **streaming** phản hồi; lịch sử chat lưu JSON mở lại được
-- **15 tools** agent tự gọi: list/search/read/create/update/delete notes, backlinks, stats, tags,
-  set_tags, recent, list_media, read_attachment, load_skill, semantic_search — xóa luôn có
-  **thẻ xác nhận** + hoàn tác, không xóa ngầm
+- Chat panel với **streaming** phản hồi; lịch sử chat lưu JSON mở lại được
+- **10 tools** agent tự gọi: `list_notes`, `search_notes`, `read_note`, `create_note`,
+  `update_note`, `delete_note`, `get_stats`, `list_tags`, `set_tags`, `get_recent_notes` —
+  xóa luôn có **thẻ xác nhận** + hoàn tác, không xóa ngầm
 - **Multi-provider OpenAI-compatible**: OpenAI, Ollama (local), OpenRouter, Groq, vLLM — test kết
-  nối trực tiếp trong Settings, chọn model ở header chat
-- **@note mentions**: gõ `@` trong composer để đính kèm nội dung note (≤8k ký tự/note)
-- **Đính kèm file vào chat** (ảnh gửi vision model, tài liệu được trích text)
-- **Agent Skills**: thư mục `skills/<tên>/SKILL.md` (quản lý trong Cài đặt); gõ `/skill` trong
-  composer để kích hoạt, agent cũng tự gọi `load_skill` khi phù hợp
-- **Tìm kiếm ngữ nghĩa** (opt-in, tắt mặc định): gõ `?câu hỏi` trong palette. Khi bật, nội dung
-  note được gửi tới endpoint embeddings của provider — dùng Ollama nếu muốn giữ dữ liệu tại máy
-- **Gợi ý tiêu đề & thẻ** bằng AI (menu ⋯ của note): sửa tiêu đề, chọn thẻ rồi Áp dụng
-- API key lưu trong **Windows Credential Manager**, không còn nằm trong `providers.json`
-- Nếu Credential Manager không khả dụng, key được lưu dự phòng vào `providers.json` (kèm cảnh báo); bản Linux của keyring cần libdbus (chưa kiểm thử)
+  nối trực tiếp trong Settings, lưu **nhiều model mỗi nhà cung cấp** (lấy từ `GET /models` hoặc gõ
+  tay), đổi model nhanh ở header chat
+- **Composer kiểu ZCode** (rich editor Lexical): `@note` là **token inline ngay trong câu**
+  (≤8k ký tự/note), menu gợi ý bám caret, Esc đóng, Enter/Tab chọn
+- **Editor → AI (right-click)**: chọn text trong note → menu ngữ cảnh "Gửi selection cho
+  Assistant" (snippet) hoặc "Hỏi AI về note này" (note thành @note token)
+- **Đính kèm file vào chat**: nút paperclip, **paste ảnh**, kéo-thả (overlay "Thả file để đính
+  kèm"), paste text dài → tự thành file `.txt`; ảnh downscale ≤2048px gửi dạng **vision parts**,
+  PDF/DOCX/text extract ≤20k ký tự; tổng ngữ cảnh ẩn ≤48k ký tự
+- **Safe send**: draft chỉ xoá khi tin nhắn được chấp nhận (thiếu provider/model → giữ nguyên
+  nội dung); draft lưu theo từng phiên chat (khôi phục khi chuyển lại)
+- **Retry gắn với message**: gửi lại đọc lại nội dung note/file mới nhất từ metadata tin nhắn;
+  mỗi lần chạy có abort controller riêng (Stop không đè lẫn nhau)
+- Lịch sử chat lưu **metadata có cấu trúc** (mentions, attachments, lỗi) → mở lại vẫn hiện đầy
+  đủ chip; file đính kèm chat được bảo vệ khỏi dọn dẹp mồ côi. *Tái dựng ảnh/file từ các turn
+  cũ khi gửi tiếp đang hoàn thiện (xem [roadmap](docs/project-roadmap.md)).*
 
 ### 📎 Media + Export
 - **Thư viện Media** (Ctrl+3): lưới ảnh/tệp, lọc, đổi tên, xóa, xem note nào đang dùng
@@ -44,7 +50,7 @@
 - Đính kèm ảnh + file (pdf, docx, txt, csv, code...) — tối đa 10 file/note, 25MB/file
 - Extract text on-device (PDF, DOCX, plain text); ảnh **tự downscale ≤2048px** khi gửi vision model
 - **Xuất PDF**: nút ⬇ trong editor → cửa sổ in A4 → Save as PDF
-- Dọn file đính kèm mồ côi tự động lúc khởi động
+- Dọn file đính kèm mồ côi tự động lúc khởi động (chỉ xóa file không dùng quá 7 ngày)
 
 ### ⚡ Quick capture + Tray
 - **Ctrl+Shift+N** (global shortcut): cửa sổ nhỏ luôn-on-top, gõ Enter lưu note mới
@@ -61,6 +67,9 @@
 - Chọn thư mục OneDrive/Google Drive bất kỳ trong Settings → mirror 2 chiều
 - Xung đột resolve **newer-wins** theo `updated` trong frontmatter
 
+### 🌍 i18n + Theming
+- UI tiếng Việt / English (chuyển trong Settings); theme Sáng/Tối/Hệ thống theo token "Studio"
+
 ## Chạy từ nguồn
 
 Yêu cầu: **Node 20+**, **Rust 1.77+** (MSVC), WebView2 (Windows 10/11 có sẵn).
@@ -68,8 +77,8 @@ Yêu cầu: **Node 20+**, **Rust 1.77+** (MSVC), WebView2 (Windows 10/11 có s�
 ```bash
 npm install
 npm run tauri dev            # chạy app
-npm test                     # 229 unit tests TS (vitest)
-cd src-tauri && cargo test --workspace   # 89 unit tests Rust
+npm test                     # unit tests TS (vitest)
+cd src-tauri && cargo test --workspace   # unit tests Rust
 npm run tauri build          # installer NSIS
 ```
 
@@ -77,13 +86,15 @@ npm run tauri build          # installer NSIS
 
 1. Mở **Cài đặt → AI Providers** (app seed sẵn preset Ollama local)
 2. Chọn preset (OpenAI/Ollama/OpenRouter/Groq/vLLM), điền API key nếu cần, bấm **Kiểm tra kết nối**
-3. (Tùy chọn) đặt model embeddings/transcription cho tìm kiếm ngữ nghĩa và chép lời ghi âm
-4. Chọn provider/model ở dropdown trong chat panel — xong
+3. Bấm **Chọn model…** → tick các model muốn dùng (tìm kiếm được, hoặc gõ tên để thêm model không có
+   trong danh sách) → **Lưu**
+4. Đổi model ở dropdown trong chat panel (model được nhóm theo nhà cung cấp) — xong
 
 ## Dùng MCP server với AI client
 
-Build binary: `cd src-tauri && cargo build -p mcp-server` → `target/debug/dnt-note-mcp.exe`.
-Thêm vào config client của bạn (vd ZCode/Claude Desktop):
+Build binary: `cd src-tauri && cargo build -p mcp-server` → `target/debug/dnt-note-mcp.exe`
+(release: thêm `--release` → `target/release/`). Thêm vào config client của bạn
+(vd ZCode/Claude Desktop):
 
 ```json
 {
@@ -111,10 +122,15 @@ URL `dntnote://note/<id>` — mở URL đó sẽ focus note trong app (cần app
 | `[[` | Chèn wiki-link (trong editor) |
 | `/` | Chọn skill (trong composer chat) |
 | `Ctrl+F` | Tìm trong ghi chú |
-| `Ctrl+S` | Lưu ngay |
+| `Ctrl+1` / `Ctrl+2` | Chuyển tab Notes / Assistant |
+| `Ctrl+,` | Mở Settings |
+| `Ctrl+S` | Lưu ngay (trong editor) |
 | `Ctrl+Z` | Hoàn tác xóa ghi chú |
 | `Ctrl+Shift+N` | Quick capture (toàn hệ thống) |
 | `Esc` | Đóng palette / cài đặt |
+
+Trong editor: `Ctrl+B/I` bold/italic, FormatBar có heading/list/quote/code/table; chat composer:
+`Enter` gửi, `Shift+Enter` xuống dòng, `@` gọi menu mention, `Backspace` xóa cả chip token.
 
 ## Dữ liệu nằm ở đâu?
 
@@ -131,30 +147,45 @@ URL `dntnote://note/<id>` — mở URL đó sẽ focus note trong app (cần app
 └── settings.json       # onboarding, sync folder
 ```
 
-## Kiến trúc
+## Kiến trúc (tóm tắt)
 
-- `src-tauri/crates/notes-core` — Rust lib thuần: model + frontmatter, NotesStore
-  (CRUD/search/tags/stats/atomic/trash/history/backlinks), media, skills, attachments (extract/resize/orphan), sync (mirror
-  newer-wins), watcher (notify debounce)
-- `src-tauri/crates/mcp-server` — binary `dnt-note-mcp` (stdio JSON-RPC, 9 unit tests)
-- `src-tauri/src` — Tauri app: commands, tray, global shortcut, single-instance, deep-link
-  (`dntnote://`), sync wiring
-- `src/` — React 19 + TS + Tailwind 4 + zustand; CM6 live-preview tự viết
+- **UI** `src/` — React 19 + TS + Tailwind 4 + zustand; CM6 live-preview tự viết
   (`src/lib/editor/livePreview.ts`); agent engine (`src/lib/agent/`) + SSE client
-  (`src/lib/llm/openai.ts`) thuần TypeScript
+  (`src/lib/llm/openai.ts`) chạy **thuần TypeScript**, gọi LLM trực tiếp qua Tauri plugin-http
+  (không CORS, không qua Rust)
+- **Rust app** `src-tauri/src` — 23 commands (notes/chats/attachments/stats/sync), tray,
+  global shortcut, single-instance, deep-link `dntnote://`, watcher, sync wiring
+- **Crates** — `notes-core` (lib thuần: store CRUD/atomic/trash, attachments, sync, watcher) +
+  `mcp-server` (binary `dnt-note-mcp` stdio JSON-RPC, tái dùng notes-core)
 
-Tài liệu: [design spec](docs/superpowers/specs/2026-09-26-dnt-note-design.md) ·
-[plan Phase 1](docs/superpowers/plans/2026-09-26-phase-1-notes-core.md) ·
-[plan Phase 2–4](docs/superpowers/plans/2026-09-26-phases-2-4-full-parity.md) ·
-[spec Phase 5–7](docs/superpowers/specs/2026-09-27-phases-5-7-media-skills-extras-design.md) ·
-[plan Phase 5–7](docs/superpowers/plans/2026-09-27-phases-5-7-media-skills-extras.md)
+Sơ đồ chi tiết, vòng đời dữ liệu, mô hình agent, bảo mật:
+[docs/system-architecture.md](docs/system-architecture.md).
+
+## Tài liệu
+
+| Tài liệu | Nội dung |
+|---|---|
+| [project-overview-pdr.md](docs/project-overview-pdr.md) | Vấn đề, mục tiêu, tính năng, yêu cầu phi chức năng, phạm vi |
+| [codebase-summary.md](docs/codebase-summary.md) | Số liệu LOC, cấu trúc thư mục, tech stack, scripts, cách test |
+| [code-standards.md](docs/code-standards.md) | Quy ước tổ chức, state/i18n/styling, Rust, testing, commits, nợ kỹ thuật |
+| [system-architecture.md](docs/system-architecture.md) | Sơ đồ 3 lớp, crates, vòng đời note, agent, MCP, bảo mật |
+| [project-roadmap.md](docs/project-roadmap.md) | Lộ trình Phase 1–7, feature arcs, đang thực hiện |
+| [deployment-guide.md](docs/deployment-guide.md) | Build, installer, MCP binary, cấu hình sau cài, backup, troubleshoot |
+| [design-guidelines.md](docs/design-guidelines.md) | Token "Studio", theming, layout, primitives, a11y, copywriting |
+
+Văn bản thiết kế gốc (specs/plans, không thay đổi trong quá trình code thường ngày):
+[design spec](docs/superpowers/specs/2026-09-26-dnt-note-design.md) ·
+[Phase 1 plan](docs/superpowers/plans/2026-09-26-phase-1-notes-core.md) ·
+[Phase 2–4 plan](docs/superpowers/plans/2026-09-26-phases-2-4-full-parity.md) ·
+[Phases 5–7 spec](docs/superpowers/specs/2026-09-27-phases-5-7-media-skills-extras-design.md).
 
 ## Đã kiểm chứng
 
-- ✅ 229 unit tests TS + 89 unit tests Rust đều pass
+- ✅ Unit tests TS (Vitest) + 52 unit tests Rust đều pass (mốc gần nhất: 168 TS)
 - ✅ `npm run build` (tsc + vite) sạch lỗi; installer NSIS build thành công
 - ✅ App chạy thật: tray + quick capture window + watcher + demo seed
 - ✅ MCP server pipe thật qua stdin/stdout: initialize → tools/list → tools/call đọc đúng 4 notes
 - ✅ Chat panel + provider settings + mentions render đúng (browser check)
-- ⬜ Checklist chạy tay (cần người): chat với LLM thật (cần key), Ctrl+Shift+N toàn hệ thống,
-  deep-link từ trình duyệt, sync OneDrive thật
+- ⬜ Checklist chạy tay (cần người): chat với LLM thật (cần key, kèm ảnh vision), paste ảnh/kéo-thả
+  file vào composer, Ctrl+Shift+N toàn hệ thống, deep-link từ trình duyệt, sync OneDrive thật
+  — xem [deployment-guide](docs/deployment-guide.md#5-kiểm-thử-trước-phát-hành)

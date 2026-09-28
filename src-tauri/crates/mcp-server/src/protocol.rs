@@ -162,7 +162,7 @@ fn call_tool(store: &mut NotesStore, name: &str, args: &Value) -> Value {
                 .and_then(|v| v.as_array())
                 .map(|a| a.iter().filter_map(|t| t.as_str().map(|x| x.to_string())).collect())
                 .unwrap_or_default();
-            match store.create(&title, &body, tags) {
+            match store.create(&title, &body, tags, None) {
                 Ok(note) => tool_text(json!({ "id": note.id, "title": note.title })),
                 Err(e) => tool_text(json!({ "error": e.to_string() })),
             }
@@ -255,9 +255,15 @@ mod tests {
 
     fn store_with_one_note() -> (TempDir, NotesStore) {
         let tmp = TempDir::new().unwrap();
-        let mut store = NotesStore::new(tmp.path().join("notes")).unwrap();
+        let mut store =
+            NotesStore::new(tmp.path().join("notes"), tmp.path().join("folders.json")).unwrap();
         store
-            .create("Ghi chú MCP", "nội dung body dài để test", vec!["test".to_string()])
+            .create(
+                "Ghi chú MCP",
+                "nội dung body dài để test",
+                vec!["test".to_string()],
+                None,
+            )
             .unwrap();
         (tmp, store)
     }

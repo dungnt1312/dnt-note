@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 104" role="img" aria-labelledby="title">
+  <title id="title">DNT Note — Concept A, light mode</title>
+  <defs>
+    <mask id="dn-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="104">
+      <rect width="100" height="104" fill="white"/>
+      <path d="M24 78V28h12l29 34V28h12v50H65L36 44v34H24Z" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#dn-cut)" fill="#171717">
+    <path d="M17 8h47v17c0 9 7 16 16 16h16v42c0 8-6 14-14 14H17C9 97 4 91 4 83V22C4 14 9 8 17 8Z"/>
+    <path d="M70 8v17c0 5 4 10 10 10h16L70 8Z"/>
+  </g>
+</svg>

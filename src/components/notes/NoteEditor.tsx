@@ -1,4 +1,3 @@
-import { ATTACHABLE } from "../../lib/media/extensions";
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
@@ -6,7 +5,6 @@ import {
   Copy,
   FileDown,
   FileText,
-  History,
   MoreHorizontal,
   Paperclip,
   Pin,
@@ -14,37 +12,36 @@ import {
   Sparkles,
   SquarePen,
   Trash2,
-  Wand2,
 } from "lucide-react";
+import { useT, localeTag } from "../../lib/i18n";
 import { useNotesStore } from "../../lib/store/notesStore";
+import { useComposerStore } from "../../lib/store/composerStore";
 import { useUi } from "../../lib/store/uiStore";
-import { mediaApi } from "../../lib/api/media";
-import { countAttachmentRefs, fileToBase64, markdownLinkFor, MAX_FILES_PER_NOTE } from "../../lib/media/insertLink";
+import { api } from "../../lib/api/notes";
+import { attachmentsApi } from "../../lib/api/attachments";
 import { isTauri } from "../../lib/env";
 import { editorSetup } from "../../lib/editor/editorSetup";
-import { getTracked, setTracked, untrack } from "../../lib/editor/trackedPos";
+import { getSelectionInfo } from "../../lib/editor/selection";
 import { fullDateTime, relativeTime } from "../../lib/dates";
-import { cn, errMsg } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 import { ContentHeader } from "../layout/ContentHeader";
 import { IconButton, Keycap, PillButton } from "../ui/Button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../ui/Menu";
 import { TagStrip } from "./TagStrip";
 import { FormatBar } from "./FormatBar";
+import { EditorContextMenu } from "./EditorContextMenu";
 import { useDeleteNote } from "./useDeleteNote";
-import { HistoryDialog } from "./HistoryDialog";
-import { SuggestDialog } from "./SuggestDialog";
-import { Backlinks } from "./Backlinks";
-import { openWikiLink } from "../../lib/editor/openWikiLink";
 
 /** "✦ Trợ lý" capsule that docks the assistant panel next to the editor. */
 export function AssistantToggle() {
+  const t = useT();
   const chatOpen = useUi((s) => s.chatOpen);
   const setChatOpen = useUi((s) => s.setChatOpen);
   return (
     <button
       type="button"
       aria-pressed={chatOpen}
-      title={chatOpen ? "Ẩn trợ lý (Ctrl+Shift+J)" : "Mở trợ lý cạnh ghi chú (Ctrl+Shift+J)"}
+      title={chatOpen ? t("notes.hideAssistant") : t("notes.showAssistant")}
       onClick={() => setChatOpen(!chatOpen)}
       className={cn(
         "ml-1.5 inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-callout font-medium transition-colors",
@@ -52,34 +49,41 @@ export function AssistantToggle() {
       )}
     >
       <Sparkles size={14} aria-hidden="true" />
-      Trợ lý
+      {t("notes.assistant")}
     </button>
   );
 }
 
-function wordStats(body: string): string {
+const ATTACHABLE = [
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf", "docx", "rtf", "odt", "txt", "md", "csv", "json",
+  "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "html", "css", "toml", "yaml", "yml", "xml", "sh",
+];
+
+function wordStats(body: string, t: ReturnType<typeof useT>): string {
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-  if (words === 0) return "0 từ";
-  if (words > 200) return `${words.toLocaleString("vi-VN")} từ · ${Math.max(1, Math.round(words / 220))} phút đọc`;
-  return `${words} từ`;
+  if (words === 0) return t("notes.statsNone");
+  if (words > 200)
+    return t("notes.statsReadTime", { n: words.toLocaleString(localeTag()), m: Math.max(1, Math.round(words / 220)) });
+  return t("notes.statsWords", { n: words });
 }
 
 function EmptyState() {
+  const t = useT();
   const create = useNotesStore((s) => s.create);
   const hasNotes = useNotesStore((s) => s.notes.length > 0);
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-16 text-center">
       <SquarePen size={36} strokeWidth={1.25} aria-hidden="true" className="text-fg-tertiary" />
       <h2 className="text-headline font-semibold text-fg">
-        {hasNotes ? "Chọn một ghi chú để bắt đầu" : "Chưa có ghi chú nào"}
+        {hasNotes ? t("notes.emptyPick") : t("notes.emptyNoNotes")}
       </h2>
       <p className="max-w-[320px] text-callout text-fg-secondary">
-        Ghi chú tự động lưu thành file Markdown ngay trên máy của bạn.
+        {t("notes.emptyDesc")}
       </p>
       <div className="mt-1.5 flex items-center gap-2">
         <PillButton onClick={() => void create()}>
           <Plus size={15} strokeWidth={2.25} aria-hidden="true" />
-          Ghi chú mới
+          {t("notes.newNote")}
         </PillButton>
         <Keycap>Ctrl N</Keycap>
       </div>
@@ -100,16 +104,16 @@ export function NoteEditor() {
   const pushToast = useUi((s) => s.pushToast);
   // The docked assistant is the right-most pane and owns the caption buttons.
   const chatOpen = useUi((s) => s.chatOpen);
+  const setChatOpen = useUi((s) => s.setChatOpen);
+  const pushChatContext = useComposerStore((s) => s.pushChatContext);
   const deleteNote = useDeleteNote();
+  const t = useT();
 
   const editorHost = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<EditorView | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
   const onChangeRef = useRef(setBody);
   onChangeRef.current = setBody;
-  const onFilesRef = useRef<(files: File[], pos: number, text?: string) => void>(() => {});
-  const trackSeq = useRef(0);
 
   const note = notes.find((n) => n.id === selectedId) ?? null;
   const [titleDraft, setTitleDraft] = useState(note?.title ?? "");
@@ -123,12 +127,7 @@ export function NoteEditor() {
         doc: body,
         extensions: editorSetup({
           onChange: (value) => onChangeRef.current(value),
-          onModS: () => void flushSave().catch(() => {}),
-          onFiles: (files, pos, text) => onFilesRef.current(files, pos, text),
-          wikiLinks: {
-            titles: () => useNotesStore.getState().notes.map((n) => n.title).filter(Boolean),
-            onOpen: (target) => void openWikiLink(target),
-          },
+          onModS: () => void flushSave(),
         }),
       }),
       parent: editorHost.current,
@@ -165,98 +164,65 @@ export function NoteEditor() {
     );
   }
 
-  // Insert `text` at `pos` (clamped), return the position after it.
-  const insertAt = (v: EditorView, pos: number, text: string): number => {
-    const at = Math.min(Math.max(0, pos), v.state.doc.length);
-    const before = at > 0 ? v.state.doc.sliceString(at - 1, at) : "\n";
-    const insert = (before === "\n" ? "" : "\n") + text;
-    v.dispatch({ changes: { from: at, insert }, selection: { anchor: at + insert.length } });
-    return at + insert.length;
-  };
-
-  onFilesRef.current = (files, pos, text) => {
-    if (!isTauri || !view) return;
-    const v = view;
-    const noteId = note.id;
-    const trackId = ++trackSeq.current;
-    // Pasted text goes in first so it is never lost.
-    let start = pos;
-    if (text) {
-      v.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: pos + text.length } });
-      start = pos + text.length;
-    }
-    v.dispatch({ effects: setTracked.of({ id: trackId, pos: start }) });
-    const alive = () => v.dom.isConnected && useNotesStore.getState().selectedId === noteId;
-    void (async () => {
-      try {
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          // Links inserted earlier in this batch are already in the doc.
-          if (countAttachmentRefs(v.state.doc.toString()) >= MAX_FILES_PER_NOTE) {
-            pushToast({
-              message: `Tối đa ${MAX_FILES_PER_NOTE} file đính kèm mỗi ghi chú — bỏ qua ${files.length - i} tệp`,
-              durationMs: 6000,
-            });
-            return;
-          }
-          try {
-            const name = file.name || `pasted-${Date.now()}.png`;
-            const b64 = await fileToBase64(file);
-            const stored = await mediaApi.attachBytes(noteId, name, b64);
-            if (!alive()) {
-              pushToast({ message: "Ghi chú đã đổi — các liên kết còn lại chưa được chèn", durationMs: 6000 });
-              return;
-            }
-            const at = getTracked(v.state, trackId) ?? v.state.selection.main.head;
-            const end = insertAt(v, at, markdownLinkFor(stored.name));
-            v.dispatch({ effects: setTracked.of({ id: trackId, pos: end }) });
-          } catch (e) {
-            pushToast({ message: `Không đính kèm được ${file.name}: ${errMsg(e)}`, durationMs: 6000 });
-          }
-        }
-      } finally {
-        if (v.dom.isConnected) v.dispatch({ effects: untrack.of(trackId) });
-      }
-    })();
-  };
-
   const attach = async () => {
-    if (!isTauri || !view) return;
+    if (!isTauri) return;
     try {
-      if (countAttachmentRefs(view.state.doc.toString()) >= MAX_FILES_PER_NOTE) {
-        pushToast({ message: `Tối đa ${MAX_FILES_PER_NOTE} file đính kèm mỗi ghi chú`, durationMs: 5000 });
-        return;
-      }
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({
         multiple: false,
-        filters: [{ name: "Tệp đính kèm", extensions: ATTACHABLE }],
+        filters: [{ name: t("notes.attachFilterName"), extensions: ATTACHABLE }],
       });
       if (typeof picked !== "string") return;
-      const stored = await mediaApi.import(picked);
-      insertAt(view, view.state.selection.main.head, markdownLinkFor(stored.name));
-      view.focus();
+      await flushSave();
+      const stored = await attachmentsApi.attach(note.id, picked);
+      pushToast({ message: t("notes.attachedToast", { name: stored.name.split("-").slice(1).join("-") }), durationMs: 4000 });
+      // Rust already appended the reference link to the body — load it back.
+      const updated = await api.notes.read(note.id);
+      useNotesStore.setState({ body: updated.body, saveState: "saved" });
     } catch (e) {
-      pushToast({ message: `Không đính kèm được: ${errMsg(e)}`, durationMs: 6000 });
+      pushToast({ message: t("notes.attachErrorToast", { error: String(e) }), durationMs: 6000 });
     }
   };
 
   const exportPdf = async () => {
     if (!isTauri) return;
-    try {
-      await flushSave();
-    } catch (e) {
-      pushToast({ message: errMsg(e), durationMs: 6000 });
-      return;
-    }
+    await flushSave();
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     void new WebviewWindow(`print-${note.id.slice(0, 8)}-${Date.now()}`, {
       url: `index.html?print=${note.id}`,
-      title: `Xuất PDF — ${note.title}`,
+      title: t("notes.exportPdfWindowTitle", { title: note.title }),
       width: 820,
       height: 1000,
     });
-    pushToast({ message: "Đã mở cửa sổ in — chọn “Save as PDF”", durationMs: 5000 });
+    pushToast({ message: t("notes.printWindowToast"), durationMs: 5000 });
+  };
+
+  const openContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault(); // suppress the WebView2 native menu
+    if (!view) return;
+    const info = getSelectionInfo(view.state);
+    setCtxMenu({ x: e.clientX, y: e.clientY, hasSelection: info.hasSelection });
+  };
+
+  const sendSelectionToAssistant = () => {
+    if (!view) return;
+    const info = getSelectionInfo(view.state);
+    if (!info.hasSelection) return;
+    pushChatContext({ kind: "snippet", title: `${note.title || t("notes.fallbackNoteLower")} ${t("notes.selectionSuffix")}`, text: info.text });
+    setChatOpen(true);
+  };
+
+  const askAssistantAboutNote = () => {
+    pushChatContext({ kind: "note", noteId: note.id, title: note.title || t("notes.fallbackNoteCapital") });
+    setChatOpen(true);
+  };
+
+  const copySelection = () => {
+    if (!view) return;
+    const text = getSelectionInfo(view.state).text;
+    void navigator.clipboard.writeText(text).then(() =>
+      pushToast({ message: t("notes.copiedToast"), durationMs: 3000 }),
+    );
   };
 
   const commitTitle = () => {
@@ -266,7 +232,11 @@ export function NoteEditor() {
   };
 
   const saveLabel =
-    saveState === "saving" ? "Đang lưu…" : saveState === "dirty" ? "Chưa lưu" : `Đã lưu ${relativeTime(note.updated)}`;
+    saveState === "saving"
+      ? t("notes.saving")
+      : saveState === "dirty"
+        ? t("notes.unsaved")
+        : t("notes.savedTime", { time: relativeTime(note.updated) });
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-app">
@@ -275,7 +245,7 @@ export function NoteEditor() {
         leading={
           <div className="flex min-w-0 items-center gap-1.5 pl-2 text-footnote text-fg-tertiary">
             <FileText size={12} aria-hidden="true" className="shrink-0" />
-            <span className="truncate text-fg-secondary">{note.title || "Chưa đặt tên"}.md</span>
+            <span className="truncate text-fg-secondary">{note.title || t("notes.untitled")}.md</span>
             <span aria-live="polite" className="shrink-0 whitespace-nowrap">
               · {saveLabel}
             </span>
@@ -284,7 +254,7 @@ export function NoteEditor() {
         trailing={
           <>
             <IconButton
-              label={note.pinned ? "Bỏ ghim" : "Ghim lên đầu danh sách"}
+              label={note.pinned ? t("notes.unpin") : t("notes.pinToList")}
               active={note.pinned}
               onClick={() => void setPinned(note.id, !note.pinned)}
             >
@@ -293,7 +263,7 @@ export function NoteEditor() {
             <Menu
               width={248}
               trigger={(p) => (
-                <IconButton label="Thao tác khác" {...p}>
+                <IconButton label={t("notes.moreActions")} {...p}>
                   <MoreHorizontal size={17} aria-hidden="true" />
                 </IconButton>
               )}
@@ -302,57 +272,41 @@ export function NoteEditor() {
                 icon={<Copy size={14} />}
                 onSelect={() => {
                   void navigator.clipboard.writeText(body).then(() =>
-                    pushToast({ message: "Đã sao chép Markdown", durationMs: 3000 }),
+                    pushToast({ message: t("notes.copiedMarkdownToast"), durationMs: 3000 }),
                   );
                 }}
               >
-                Sao chép Markdown
+                {t("notes.copyMarkdown")}
               </MenuItem>
               <MenuItem icon={<Paperclip size={14} />} disabled={!isTauri} onSelect={() => void attach()}>
-                Đính kèm ảnh hoặc tệp…
+                {t("notes.attachMenuItem")}
               </MenuItem>
               <MenuItem icon={<FileDown size={14} />} disabled={!isTauri} onSelect={() => void exportPdf()}>
-                Xuất PDF…
-              </MenuItem>
-              <MenuItem icon={<History size={14} />} disabled={!isTauri} onSelect={() => setHistoryOpen(true)}>
-                Lịch sử phiên bản…
-              </MenuItem>
-              <MenuItem icon={<Wand2 size={14} />} onSelect={() => setSuggestOpen(true)}>
-                Gợi ý tiêu đề & thẻ
+                {t("notes.exportPdf")}
               </MenuItem>
               <MenuSeparator />
               <MenuLabel>
-                Tạo {fullDateTime(note.created)} · {wordStats(body)}
+                {t("notes.createdLabel", { created: fullDateTime(note.created), stats: wordStats(body, t) })}
               </MenuLabel>
               <MenuSeparator />
               <MenuItem destructive icon={<Trash2 size={14} />} onSelect={() => deleteNote(note.id)}>
-                Xóa ghi chú
+                {t("notes.deleteNote")}
               </MenuItem>
             </Menu>
             <AssistantToggle />
-            {historyOpen && <HistoryDialog noteId={note.id} onClose={() => setHistoryOpen(false)} />}
-            {suggestOpen && (
-              <SuggestDialog
-                noteId={note.id}
-                title={note.title}
-                body={body}
-                tags={note.tags}
-                onClose={() => setSuggestOpen(false)}
-              />
-            )}
           </>
         }
       />
 
-      <FormatBar view={view} stats={wordStats(body)} noteId={note.id} />
+      <FormatBar view={view} stats={wordStats(body, t)} />
       <div className="h-px shrink-0 bg-hairline" />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[760px] px-10 pt-8">
           <input
             value={titleDraft}
-            aria-label="Tiêu đề ghi chú"
-            placeholder="Chưa đặt tên"
+            aria-label={t("notes.titleAriaLabel")}
+            placeholder={t("notes.untitled")}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={commitTitle}
             onKeyDown={(e) => {
@@ -370,10 +324,21 @@ export function NoteEditor() {
           <div className="mb-4 mt-2.5">
             <TagStrip tags={note.tags} onChange={(tags) => void setTags(note.id, tags)} />
           </div>
-          <div ref={editorHost} />
-          <Backlinks noteId={note.id} />
+          <div ref={editorHost} onContextMenu={openContextMenu} />
         </div>
       </div>
+
+      {ctxMenu && (
+        <EditorContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          hasSelection={ctxMenu.hasSelection}
+          onClose={() => setCtxMenu(null)}
+          onSelection={sendSelectionToAssistant}
+          onWholeNote={askAssistantAboutNote}
+          onCopy={copySelection}
+        />
+      )}
     </main>
   );
 }

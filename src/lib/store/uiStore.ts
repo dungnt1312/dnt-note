@@ -16,6 +16,8 @@ export type Workspace = "notes" | "chat" | "media";
 interface UiState {
   searchQuery: string;
   tagFilter: string | null;
+  /** Selected folder in the sidebar (null = all notes). Filters together with tagFilter. */
+  folderFilter: string | null;
   paletteOpen: boolean;
   section: Section;
   workspace: Workspace;
@@ -27,6 +29,7 @@ interface UiState {
   toasts: Toast[];
   setSearchQuery: (q: string) => void;
   setTagFilter: (t: string | null) => void;
+  setFolderFilter: (f: string | null) => void;
   setPaletteOpen: (open: boolean) => void;
   setSection: (section: Section) => void;
   toggleSidebar: () => void;
@@ -42,6 +45,7 @@ let sectionBeforeSettings: Section = "notes";
 export const useUi = create<UiState>()((set, get) => ({
   searchQuery: "",
   tagFilter: null,
+  folderFilter: null,
   paletteOpen: false,
   section: "notes",
   workspace: "notes",
@@ -52,6 +56,7 @@ export const useUi = create<UiState>()((set, get) => ({
 
   setSearchQuery: (q) => set({ searchQuery: q }),
   setTagFilter: (t) => set({ tagFilter: t }),
+  setFolderFilter: (f) => set({ folderFilter: f }),
   setPaletteOpen: (open) => set({ paletteOpen: open }),
 
   setSection: (section) => {

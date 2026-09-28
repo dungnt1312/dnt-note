@@ -3,13 +3,12 @@ import { Check, ChevronDown, Eye, EyeOff, Loader2, Plus, Trash2, X } from "lucid
 import { listModels, initLlmFetch } from "../../lib/llm/openai";
 import { useSettingsStore, PROVIDER_PRESETS, type LlmProvider } from "../../lib/store/settingsStore";
 import { isTauri } from "../../lib/env";
-import { useUi } from "../../lib/store/uiStore";
-import { api } from "../../lib/api/notes";
-import { embeddingProvider, ensureIndex } from "../../lib/semantic";
 import { cn } from "../../lib/utils";
+import { useT } from "../../lib/i18n";
 import { SecondaryButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
 import { Menu, MenuItem } from "../ui/Menu";
+import { ModelPickerDialog } from "./ModelPickerDialog";
 
 async function tauriFetch(): Promise<typeof fetch | null> {
   if (!isTauri) return null;
@@ -20,6 +19,11 @@ async function tauriFetch(): Promise<typeof fetch | null> {
 export async function ensureLlmFetch(): Promise<void> {
   const f = await tauriFetch();
   if (f) initLlmFetch(f);
+}
+
+async function fetchModels(provider: LlmProvider): Promise<string[]> {
+  const f = await tauriFetch();
+  return listModels(provider.baseUrl, provider.apiKey || undefined, f ?? undefined);
 }
 
 function Field({
@@ -52,20 +56,95 @@ type TestState =
   | { kind: "ok"; count: number }
   | { kind: "fail"; message: string };
 
+/** Saved models as chips: click one to chat with it, × to drop it, last chip opens the picker. */
+function ModelChips({
+  provider,
+  active,
+  labelledBy,
+  onPick,
+}: {
+  provider: LlmProvider;
+  /** The provider the chat uses — its current model chip is filled. */
+  active: boolean;
+  labelledBy: string;
+  onPick: () => void;
+}) {
+  const selectModel = useSettingsStore((s) => s.selectModel);
+  const setModels = useSettingsStore((s) => s.setModels);
+  const t = useT();
+
+  return (
+    <div role="group" aria-labelledby={labelledBy} className="flex flex-wrap items-center gap-1.5">
+      {provider.models.map((m) => {
+        const current = m === provider.model;
+        const inUse = current && active;
+        return (
+          <span
+            key={m}
+            className={cn(
+              "inline-flex h-7 max-w-full items-center rounded-full border text-footnote font-medium transition-colors",
+              inUse
+                ? "border-accent bg-accent text-accent-fg"
+                : current
+                  ? "border-fg-tertiary bg-app text-fg hover:bg-hover"
+                  : "border-hairline bg-app text-fg hover:bg-hover",
+            )}
+          >
+            <button
+              type="button"
+              aria-pressed={current}
+              title={inUse ? t("settings.modelInUseTitle", { model: m }) : t("settings.useModelTitle", { model: m })}
+              onClick={() => void selectModel(provider.id, m)}
+              className="inline-flex h-full min-w-0 items-center gap-1 rounded-l-full pl-2.5 pr-1"
+            >
+              {current && <Check size={12} strokeWidth={2.5} aria-hidden="true" className="shrink-0" />}
+              <span className="truncate">{m}</span>
+            </button>
+            <button
+              type="button"
+              aria-label={t("settings.removeModelAria", { model: m })}
+              title={t("settings.removeModel")}
+              onClick={() => void setModels(provider.id, provider.models.filter((x) => x !== m))}
+              className={cn(
+                "mr-1 flex size-5 shrink-0 items-center justify-center rounded-full transition-colors",
+                inUse
+                  ? "text-accent-fg/60 hover:bg-accent-fg/15 hover:text-accent-fg"
+                  : "text-fg-tertiary hover:bg-selected hover:text-fg",
+              )}
+            >
+              <X size={11} strokeWidth={2.5} aria-hidden="true" />
+            </button>
+          </span>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onPick}
+        className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-hairline px-2.5 text-footnote font-medium text-fg-secondary transition-colors hover:bg-hover hover:text-fg"
+      >
+        <Plus size={12} strokeWidth={2.5} aria-hidden="true" />
+        {t("settings.chooseModel")}
+      </button>
+    </div>
+  );
+}
+
 function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete: () => void }) {
   const upsert = useSettingsStore((s) => s.upsertProvider);
+  const setModels = useSettingsStore((s) => s.setModels);
   const setActive = useSettingsStore((s) => s.setActiveProvider);
   const activeId = useSettingsStore((s) => s.activeProviderId);
+  const t = useT();
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [showKey, setShowKey] = useState(false);
+  const [picking, setPicking] = useState(false);
   const active = activeId === provider.id;
   const id = (f: string) => `${provider.id}-${f}`;
 
   const runTest = async () => {
     setTest({ kind: "testing" });
     try {
-      const f = await tauriFetch();
-      const models = await listModels(provider.baseUrl, provider.apiKey || undefined, f ?? undefined);
+      const models = await fetchModels(provider);
       setTest({ kind: "ok", count: models.length });
     } catch (e) {
       setTest({ kind: "fail", message: e instanceof Error ? e.message : String(e) });
@@ -78,23 +157,27 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
         <input
           id={id("name")}
           value={provider.name}
-          aria-label="Tên nhà cung cấp"
+          aria-label={t("settings.providerNameLabel")}
+          title={t("settings.renameHint")}
           onChange={(e) => void upsert(provider.id, { name: e.target.value })}
-          className="min-w-0 flex-1 rounded-sm bg-transparent px-1 py-0.5 text-body font-semibold text-fg outline-none hover:bg-hover focus:bg-hover"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className="min-w-0 flex-1 rounded-sm border-b border-transparent bg-transparent px-1 py-0.5 text-body font-semibold text-fg outline-none transition-colors hover:border-fg-tertiary hover:bg-hover focus:border-fg-tertiary focus:bg-hover"
         />
         {active ? (
           <span className="inline-flex h-5 items-center rounded-full bg-accent px-2 text-caption font-semibold text-accent-fg">
-            Đang dùng
+            {t("settings.inUse")}
           </span>
         ) : (
-          <SecondaryButton className="h-7 px-3" onClick={() => setActive(provider.id)}>
-            Dùng
+          <SecondaryButton className="h-7 px-3" onClick={() => void setActive(provider.id)}>
+            {t("settings.use")}
           </SecondaryButton>
         )}
         <button
           type="button"
-          aria-label={`Xóa nhà cung cấp ${provider.name}`}
-          title="Xóa nhà cung cấp"
+          aria-label={t("settings.deleteProviderAria", { name: provider.name })}
+          title={t("settings.deleteProvider")}
           onClick={onDelete}
           className="flex size-7 items-center justify-center rounded-sm text-fg-tertiary transition-colors hover:bg-hover hover:text-danger"
         >
@@ -114,40 +197,7 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
             autoComplete="off"
           />
         </Field>
-        <Field label="Model" htmlFor={id("model")}>
-          <input
-            id={id("model")}
-            value={provider.model}
-            onChange={(e) => void upsert(provider.id, { model: e.target.value.trim() })}
-            className={input}
-            placeholder="gpt-4o-mini"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
-        <Field label="Model embeddings (tùy chọn)" htmlFor={id("embed")}>
-          <input
-            id={id("embed")}
-            value={provider.embeddingModel ?? ""}
-            onChange={(e) => void upsert(provider.id, { embeddingModel: e.target.value.trim() })}
-            className={input}
-            placeholder="text-embedding-3-small / nomic-embed-text"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
-        <Field label="Model chuyển giọng nói (tùy chọn)" htmlFor={id("stt")}>
-          <input
-            id={id("stt")}
-            value={provider.transcriptionModel ?? ""}
-            onChange={(e) => void upsert(provider.id, { transcriptionModel: e.target.value.trim() })}
-            className={input}
-            placeholder="whisper-1"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
-        <Field label="API key" htmlFor={id("key")} className="col-span-2">
+        <Field label="API key" htmlFor={id("key")}>
           <div className="relative">
             <input
               id={id("key")}
@@ -155,13 +205,13 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
               value={provider.apiKey}
               onChange={(e) => void upsert(provider.id, { apiKey: e.target.value })}
               className={cn(input, "pr-10 font-mono")}
-              placeholder="sk-… (để trống với Ollama local)"
+              placeholder={t("settings.apiKeyPlaceholder")}
               spellCheck={false}
               autoComplete="off"
             />
             <button
               type="button"
-              aria-label={showKey ? "Ẩn API key" : "Hiện API key"}
+              aria-label={showKey ? t("settings.hideApiKey") : t("settings.showApiKey")}
               onClick={() => setShowKey((v) => !v)}
               className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-fg-tertiary hover:bg-hover hover:text-fg"
             >
@@ -171,15 +221,22 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
         </Field>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3">
+        <div id={id("models")} className="mb-1.5 text-footnote font-medium text-fg-secondary">
+          {t("settings.modelLabel")}
+        </div>
+        <ModelChips provider={provider} active={active} labelledBy={id("models")} onPick={() => setPicking(true)} />
+      </div>
+
+      <div className="mt-3.5 flex items-center gap-3">
         <SecondaryButton onClick={() => void runTest()} disabled={test.kind === "testing"}>
           {test.kind === "testing" && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
-          Kiểm tra kết nối
+          {t("settings.testConnection")}
         </SecondaryButton>
         <span aria-live="polite" className="min-w-0 truncate text-footnote">
           {test.kind === "ok" && (
             <span className="inline-flex items-center gap-1 text-fg-secondary">
-              <Check size={13} aria-hidden="true" /> Kết nối được · {test.count} model
+              <Check size={13} aria-hidden="true" /> {t("settings.connectionOk", { count: test.count })}
             </span>
           )}
           {test.kind === "fail" && (
@@ -189,64 +246,18 @@ function ProviderCard({ provider, onDelete }: { provider: LlmProvider; onDelete:
           )}
         </span>
       </div>
-    </div>
-  );
-}
 
-function SemanticIndexingRow() {
-  const enabled = useSettingsStore((s) => s.semanticIndexing);
-  const setEnabled = useSettingsStore((s) => s.setSemanticIndexing);
-  const pushToast = useUi((s) => s.pushToast);
-  const [busy, setBusy] = useState(false);
-
-  const buildNow = async () => {
-    setBusy(true);
-    try {
-      const provider = embeddingProvider();
-      const index = await ensureIndex(provider, await api.notes.list());
-      pushToast({ message: `Đã lập chỉ mục ${Object.keys(index.entries).length} ghi chú`, durationMs: 4000 });
-    } catch (e) {
-      pushToast({ message: e instanceof Error ? e.message : String(e), durationMs: 6000 });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-hairline p-3.5">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-callout font-medium text-fg">Tìm kiếm theo ý nghĩa</p>
-          <p className="text-footnote text-fg-secondary">
-            Khi bật, tiêu đề và nội dung ghi chú sẽ được gửi tới endpoint embeddings của nhà cung cấp đang chọn để
-            lập chỉ mục (chỉ mục lưu trên máy). Cần nhập “Model embeddings” cho nhà cung cấp.
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-label="Tìm kiếm theo ý nghĩa"
-          onClick={() => void setEnabled(!enabled)}
-          className={cn("relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors", enabled ? "bg-accent" : "bg-hairline")}
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "absolute top-[2px] size-[18px] rounded-full bg-white shadow transition-[left]",
-              enabled ? "left-[18px]" : "left-[2px]",
-            )}
-          />
-        </button>
-      </div>
-      {enabled && (
-        <div>
-          <SecondaryButton onClick={() => void buildNow()} disabled={busy}>
-            {busy && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
-            Tạo chỉ mục ngay
-          </SecondaryButton>
-        </div>
-      )}
+      <ModelPickerDialog
+        open={picking}
+        providerName={provider.name}
+        saved={provider.models}
+        loadModels={() => fetchModels(provider)}
+        onSave={(models) => {
+          void setModels(provider.id, models);
+          setPicking(false);
+        }}
+        onClose={() => setPicking(false)}
+      />
     </div>
   );
 }
@@ -255,6 +266,7 @@ export function ProvidersSection() {
   const providers = useSettingsStore((s) => s.providers);
   const addProvider = useSettingsStore((s) => s.addProvider);
   const removeProvider = useSettingsStore((s) => s.removeProvider);
+  const t = useT();
   const [deleting, setDeleting] = useState<LlmProvider | null>(null);
 
   return (
@@ -273,7 +285,7 @@ export function ProvidersSection() {
             className="flex h-11 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-hairline text-callout font-medium text-fg-secondary transition-colors hover:bg-hover hover:text-fg"
           >
             <Plus size={15} aria-hidden="true" />
-            Thêm nhà cung cấp
+            {t("settings.addProvider")}
             <ChevronDown size={13} aria-hidden="true" />
           </button>
         )}
@@ -284,12 +296,11 @@ export function ProvidersSection() {
           </MenuItem>
         ))}
       </Menu>
-      <SemanticIndexingRow />
       <ConfirmDialog
         open={deleting !== null}
-        title={`Xóa nhà cung cấp “${deleting?.name ?? ""}”?`}
-        description="API key đã lưu của nhà cung cấp này cũng sẽ bị xóa khỏi máy."
-        confirmLabel="Xóa nhà cung cấp"
+        title={t("settings.deleteProviderTitle", { name: deleting?.name ?? "" })}
+        description={t("settings.deleteProviderDescription")}
+        confirmLabel={t("settings.deleteProviderConfirm")}
         onCancel={() => setDeleting(null)}
         onConfirm={() => {
           if (deleting) void removeProvider(deleting.id);

@@ -42,7 +42,9 @@ export function SidebarRow({ selected, onSelect, actions, label, children, onCon
       {actions && (
         <div
           className={cn(
-            "absolute right-1 top-1/2 flex -translate-y-1/2 items-center",
+            // No transform here: it would create a stacking context and trap the
+            // menu's z-40, letting later rows paint over the open menu.
+            "pointer-events-none absolute inset-y-0 right-1 flex items-center",
             "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
             selected && "opacity-100",
           )}

@@ -164,6 +164,14 @@ body {
   user-select: none;
 }
 
+/* Text fields must re-enable selection: `user-select: none` inherits into inputs and
+   on WebView2 it blocks click-to-place-caret / drag-select, making them look read-only. */
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--studio-fg) 18%, transparent);
 }
@@ -177,7 +185,9 @@ body {
 input:focus-visible,
 textarea:focus-visible,
 .cm-editor :focus-visible,
+[contenteditable="true"]:focus-visible,
 [role="menuitem"]:focus-visible,
+[role="menuitemradio"]:focus-visible,
 [role="option"]:focus-visible {
   outline: none;
 }

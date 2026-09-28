@@ -1,16 +1,8 @@
-const LOCALE = "vi-VN";
+import { getT, useLangStore, type Lang } from "./i18n";
 
 export type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
 
 const BUCKET_ORDER: TimeBucket[] = ["today", "yesterday", "week", "month", "older"];
-
-const BUCKET_LABEL: Record<TimeBucket, string> = {
-  today: "Hôm nay",
-  yesterday: "Hôm qua",
-  week: "7 ngày qua",
-  month: "30 ngày qua",
-  older: "Cũ hơn",
-};
 
 function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -34,7 +26,12 @@ export function timeBucket(value: Date | string, now = new Date()): TimeBucket {
   return "older";
 }
 
-/** ChatGPT-style sections: Hôm nay / Hôm qua / 7 ngày qua / 30 ngày qua / Cũ hơn. */
+/**
+ * ChatGPT-style sections: today / yesterday / last 7 days / last 30 days / older.
+ * `key` is the stable bucket id; `label` is resolved through the i18n dict for
+ * non-React callers. React callers should translate `key` with useT() so the
+ * label re-renders on language change.
+ */
 export function groupByTime<T>(
   items: T[],
   getDate: (item: T) => Date | string,
@@ -49,33 +46,52 @@ export function groupByTime<T>(
   }
   return BUCKET_ORDER.filter((k) => buckets.has(k)).map((key) => ({
     key,
-    label: BUCKET_LABEL[key],
+    label: getT()(`sidebar.group.${key}`),
     items: buckets.get(key)!,
   }));
 }
 
-const timeFmt = new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit" });
-const weekdayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: "long" });
-const dayMonthFmt = new Intl.DateTimeFormat(LOCALE, { day: "2-digit", month: "2-digit" });
-const dateTimeFmt = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "short" });
+/** Per-locale formatters; picked by the live UI language. */
+const FMT: Record<Lang, { time: Intl.DateTimeFormat; weekday: Intl.DateTimeFormat; dayMonth: Intl.DateTimeFormat; dateTime: Intl.DateTimeFormat }> = {
+  vi: {
+    time: new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }),
+    weekday: new Intl.DateTimeFormat("vi-VN", { weekday: "long" }),
+    dayMonth: new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }),
+    dateTime: new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }),
+  },
+  en: {
+    time: new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" }),
+    weekday: new Intl.DateTimeFormat("en-US", { weekday: "long" }),
+    dayMonth: new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "2-digit" }),
+    dateTime: new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }),
+  },
+};
+
+function fmt(kind: keyof (typeof FMT)["vi"]): Intl.DateTimeFormat {
+  return FMT[useLangStore.getState().lang][kind];
+}
 
 /** Apple-Notes style: today → time, yesterday, this week → weekday, else dd/mm. */
 export function shortDate(value: Date | string, now = new Date()): string {
   const d = toDate(value);
   if (Number.isNaN(d.getTime())) return "";
   const days = daysAgo(d, now);
-  if (days <= 0) return timeFmt.format(d);
-  if (days === 1) return "Hôm qua";
+  if (days <= 0) return fmt("time").format(d);
+  if (days === 1) return getT()("sidebar.group.yesterday");
   if (days < 7) {
-    const w = weekdayFmt.format(d);
+    const w = fmt("weekday").format(d);
     return w.charAt(0).toUpperCase() + w.slice(1);
   }
   return dayMonth(d);
 }
 
-/** dd/mm — built by hand because ICU's vi-VN pattern varies between "/" and "-". */
+/**
+ * Day/month built by hand for Vietnamese because ICU's vi-VN pattern varies
+ * between "/" and "-"; English uses its native mm/dd pattern.
+ */
 function dayMonth(d: Date): string {
-  const parts = dayMonthFmt.formatToParts(d);
+  if (useLangStore.getState().lang === "en") return fmt("dayMonth").format(d);
+  const parts = fmt("dayMonth").formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   return `${get("day")}/${get("month")}`;
 }
@@ -84,15 +100,16 @@ export function relativeTime(value: Date | string, now = new Date()): string {
   const d = toDate(value);
   const seconds = Math.round((now.getTime() - d.getTime()) / 1000);
   if (Number.isNaN(seconds)) return "";
-  if (seconds < 45) return "vừa xong";
+  const t = getT();
+  if (seconds < 45) return t("sidebar.justNow");
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} phút trước`;
+  if (minutes < 60) return t("sidebar.minutesAgo", { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} giờ trước`;
+  if (hours < 24) return t("sidebar.hoursAgo", { n: hours });
   return shortDate(d, now);
 }
 
 export function fullDateTime(value: Date | string): string {
   const d = toDate(value);
-  return Number.isNaN(d.getTime()) ? "" : dateTimeFmt.format(d);
+  return Number.isNaN(d.getTime()) ? "" : fmt("dateTime").format(d);
 }

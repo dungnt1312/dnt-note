@@ -160,7 +160,7 @@ mod tests {
 
     fn note(body: &str) -> Note {
         let t = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
-        Note { id: "n1".into(), title: "T".into(), tags: vec![], pinned: false, created: t, updated: t, body: body.into() }
+        Note { id: "n1".into(), title: "T".into(), tags: vec![], pinned: false, folder: None, created: t, updated: t, body: body.into() }
     }
 
     fn at(min: i64) -> DateTime<Utc> {

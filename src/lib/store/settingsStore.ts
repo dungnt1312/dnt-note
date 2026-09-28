@@ -1,12 +1,16 @@
 import { create } from "zustand";
 import { secretsApi } from "../api/secrets";
 import { useUi } from "./uiStore";
+import { cleanModelList } from "../llm/models";
 
 export interface LlmProvider {
   id: string;
   name: string;
   baseUrl: string;
+  /** Model used for chat — one of `models`, or "" when none is saved. */
   model: string;
+  /** Models saved for this provider; the chat header offers all of them. */
+  models: string[];
   apiKey: string;
   embeddingModel?: string;
   transcriptionModel?: string;
@@ -16,6 +20,9 @@ export interface LlmProvider {
   vaultReadFailed?: boolean;
 }
 
+/** Providers saved before multi-model support have no `models`. */
+type StoredProvider = Omit<LlmProvider, "models"> & { models?: unknown };
+
 interface SettingsState {
   providers: LlmProvider[];
   activeProviderId: string | null;
@@ -24,10 +31,14 @@ interface SettingsState {
   setSemanticIndexing: (on: boolean) => Promise<void>;
   loaded: boolean;
   loadStore: () => Promise<void>;
-  addProvider: (p: Omit<LlmProvider, "id">) => Promise<void>;
-  upsertProvider: (id: string, patch: Partial<Omit<LlmProvider, "id">>) => Promise<void>;
+  addProvider: (p: Omit<LlmProvider, "id" | "models"> & { models?: string[] }) => Promise<void>;
+  upsertProvider: (id: string, patch: Partial<Pick<LlmProvider, "name" | "baseUrl" | "apiKey" | "model">>) => Promise<void>;
+  /** Replace the saved models; if the current model was dropped, the first one takes over. */
+  setModels: (id: string, models: string[]) => Promise<void>;
+  /** Chat with `model` of provider `id` (the provider becomes active). */
+  selectModel: (id: string, model: string) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
-  setActiveProvider: (id: string | null) => void;
+  setActiveProvider: (id: string | null) => Promise<void>;
   activeProvider: () => LlmProvider | null;
 }
 
@@ -134,8 +145,14 @@ async function toPersisted(providers: LlmProvider[]): Promise<LlmProvider[]> {
 let persistChain: Promise<void> = Promise.resolve();
 let persistQueued: Promise<void> | null = null;
 
+function withModels(p: StoredProvider): LlmProvider {
+  const saved = Array.isArray(p.models) ? p.models : [p.model];
+  const models = cleanModelList(saved.filter((m): m is string => typeof m === "string"));
+  return { ...p, models, model: models.includes(p.model) ? p.model : (models[0] ?? "") };
+}
+
 /** Serialized persist: runs after the previous one, always with the latest state; coalesces queued calls. */
-function persist(): Promise<void> {
+function persist(_state?: SettingsState): Promise<void> {
   if (persistQueued) return persistQueued;
   const run = persistChain
     .catch(() => {})
@@ -172,13 +189,14 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   loadStore: async () => {
     try {
       const store = await getStore();
-      const providers = ((await store?.get("providers")) as LlmProvider[] | undefined) ?? [];
+      const stored = ((await store?.get("providers")) as StoredProvider[] | undefined) ?? [];
+      const providers = stored.map(withModels);
       const activeProviderId =
         ((await store?.get("activeProviderId")) as string | undefined) ?? null;
       set({ semanticIndexing: (await store?.get("semanticIndexing")) === true });
       if (providers.length === 0) {
         // First run: seed the local Ollama preset so chat works out of the box.
-        const first: LlmProvider = { id: newId(), ...PROVIDER_PRESETS[0], apiKey: "" };
+        const first = withModels({ id: newId(), ...PROVIDER_PRESETS[0], apiKey: "" });
         set({ providers: [first], activeProviderId: first.id, loaded: true });
         await persist();
       } else {
@@ -211,7 +229,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   addProvider: async (p) => {
     set((s) => {
-      const provider = { ...p, id: newId() };
+      const provider = withModels({ ...p, id: newId() });
       return {
         providers: [...s.providers, provider],
         activeProviderId: s.activeProviderId ?? provider.id,
@@ -230,6 +248,24 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       }),
     }));
     await persist();
+  },
+
+  setModels: async (id, models) => {
+    const list = cleanModelList(models);
+    set((s) => ({
+      providers: s.providers.map((x) =>
+        x.id === id ? { ...x, models: list, model: list.includes(x.model) ? x.model : (list[0] ?? "") } : x,
+      ),
+    }));
+    await persist(get());
+  },
+
+  selectModel: async (id, model) => {
+    set((s) => ({
+      activeProviderId: id,
+      providers: s.providers.map((x) => (x.id === id ? { ...x, model } : x)),
+    }));
+    await persist(get());
   },
 
   removeProvider: async (id) => {
@@ -252,7 +288,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     await persist();
   },
 
-  setActiveProvider: (id) => set({ activeProviderId: id }),
+  setActiveProvider: async (id) => {
+    set({ activeProviderId: id });
+    await persist(get());
+  },
 
   activeProvider: () => {
     const { providers, activeProviderId } = get();
