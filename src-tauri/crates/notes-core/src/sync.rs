@@ -164,7 +164,7 @@ mod tests {
     fn setup_pair() -> (TempDir, NotesStore, std::path::PathBuf) {
         let tmp = TempDir::new().unwrap();
         let notes_dir = tmp.path().join("notes");
-        let store = NotesStore::new(notes_dir.clone()).unwrap();
+        let store = NotesStore::new(notes_dir.clone(), tmp.path().join("folders.json")).unwrap();
         let target = tmp.path().join("onedrive");
         (tmp, store, target)
     }
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn copies_local_notes_to_empty_target() {
         let (_tmp, mut store, target) = setup_pair();
-        store.create("Một", "body", vec![]).unwrap();
+        store.create("Một", "body", vec![], None).unwrap();
         let report = mirror(store.notes_dir(), &target).unwrap();
         assert_eq!(report.copied_out, 1);
         assert_eq!(report.copied_in, 0);
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn newer_wins_on_conflict_both_directions() {
         let (_tmp, mut store, target) = setup_pair();
-        let note = store.create("Gốc", "v1", vec![]).unwrap();
+        let note = store.create("Gốc", "v1", vec![], None).unwrap();
         mirror(store.notes_dir(), &target).unwrap();
 
         // Local edit becomes newer → copied out.
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn corrupt_remote_loses_to_parseable_local() {
         let (_tmp, mut store, target) = setup_pair();
-        let note = store.create("Ổn định", "body", vec![]).unwrap();
+        let note = store.create("Ổn định", "body", vec![], None).unwrap();
         mirror(store.notes_dir(), &target).unwrap();
         // Corrupt the remote copy.
         std::fs::write(target.join(format!("{}.md", note.id)), "garbage without frontmatter").unwrap();
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn identical_notes_are_untouched() {
         let (_tmp, mut store, target) = setup_pair();
-        store.create("Same", "same", vec![]).unwrap();
+        store.create("Same", "same", vec![], None).unwrap();
         mirror(store.notes_dir(), &target).unwrap();
         let report = mirror(store.notes_dir(), &target).unwrap();
         assert_eq!(report, SyncReport::default());

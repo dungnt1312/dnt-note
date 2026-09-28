@@ -1,4 +1,5 @@
 use crate::error::{NoteError, Result};
+use crate::folders::{eq_ci, FolderRegistry};
 use crate::note::{Note, NoteMeta, NotePatch, Stats};
 use crate::note_file;
 use chrono::Utc;
@@ -11,16 +12,18 @@ use std::path::{Path, PathBuf};
 pub struct NotesStore {
     dir: PathBuf,
     trash_dir: PathBuf,
+    folders: FolderRegistry,
     index: HashMap<String, NoteMeta>,
 }
 
 impl NotesStore {
-    pub fn new(notes_dir: PathBuf) -> std::io::Result<Self> {
+    pub fn new(notes_dir: PathBuf, folders_path: PathBuf) -> std::io::Result<Self> {
         let trash_dir = notes_dir.join(".trash");
         fs::create_dir_all(&trash_dir)?;
         let mut store = NotesStore {
             dir: notes_dir,
             trash_dir,
+            folders: FolderRegistry::load(folders_path),
             index: HashMap::new(),
         };
         store.reload();
@@ -93,14 +96,20 @@ impl NotesStore {
         self.load_note_from(&path)
     }
 
-    pub fn create(&mut self, title: &str, body: &str, tags: Vec<String>) -> Result<Note> {
+    pub fn create(
+        &mut self,
+        title: &str,
+        body: &str,
+        tags: Vec<String>,
+        folder: Option<String>,
+    ) -> Result<Note> {
         let now = Utc::now();
         let note = Note {
             id: new_id(),
             title: title.trim().to_string(),
             tags,
             pinned: false,
-            folder: None,
+            folder,
             created: now,
             updated: now,
             body: body.to_string(),
@@ -214,6 +223,106 @@ impl NotesStore {
         }
     }
 
+    /// Union of registered folder names and folder values found on notes,
+    /// sorted case-insensitively.
+    pub fn list_folders(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for name in self.folders.names() {
+            if !out.iter().any(|n| eq_ci(n, name)) {
+                out.push(name.clone());
+            }
+        }
+        for meta in self.index.values() {
+            if let Some(f) = &meta.folder {
+                if !out.iter().any(|n| eq_ci(n, f)) {
+                    out.push(f.clone());
+                }
+            }
+        }
+        out.sort_by_key(|a| a.to_lowercase());
+        out
+    }
+
+    pub fn create_folder(&mut self, raw_name: &str) -> Result<Vec<String>> {
+        let name = crate::folders::validate_name(raw_name)?;
+        if self.list_folders().iter().any(|n| eq_ci(n, &name)) {
+            return Err(NoteError::Unknown(format!(
+                "folder already exists: {name}"
+            )));
+        }
+        self.folders.add(&name)?;
+        Ok(self.list_folders())
+    }
+
+    pub fn rename_folder(&mut self, old: &str, new_raw: &str) -> Result<usize> {
+        let new = crate::folders::validate_name(new_raw)?;
+        let known = self.folders.names().iter().any(|n| eq_ci(n, old))
+            || self
+                .index
+                .values()
+                .any(|m| m.folder.as_deref().is_some_and(|f| eq_ci(f, old)));
+        if !known {
+            return Err(NoteError::NotFound(format!("folder {old}")));
+        }
+        if !eq_ci(old, &new) && self.list_folders().iter().any(|n| eq_ci(n, &new)) {
+            return Err(NoteError::Unknown(format!(
+                "folder already exists: {new}"
+            )));
+        }
+        let moved = self.retarget_notes_matching(old, Some(&new))?;
+        self.folders.replace(old, &new)?;
+        Ok(moved)
+    }
+
+    pub fn remove_folder(&mut self, name: &str) -> Result<usize> {
+        let moved = self.retarget_notes_matching(name, None)?;
+        self.folders.remove(name)?;
+        Ok(moved)
+    }
+
+    pub fn set_note_folder(&mut self, id: &str, folder: Option<&str>) -> Result<Note> {
+        if !self.index.contains_key(id) {
+            return Err(NoteError::NotFound(id.to_string()));
+        }
+        let canonical = match folder {
+            Some(f) => {
+                let name = crate::folders::validate_name(f)?;
+                self.list_folders()
+                    .into_iter()
+                    .find(|n| eq_ci(n, &name))
+                    .ok_or_else(|| NoteError::NotFound(format!("folder {name}")))?
+            }
+            None => String::new(),
+        };
+        let mut note = self.read(id)?;
+        note.folder = if folder.is_some() { Some(canonical) } else { None };
+        note.updated = Utc::now();
+        self.write_note(&note)?;
+        self.index.insert(note.id.clone(), NoteMeta::from(&note));
+        Ok(note)
+    }
+
+    /// Rewrite every note whose folder matches `name` (case-insensitive) so it
+    /// carries `new_folder`; bumps `updated` so the sync mirror propagates it.
+    fn retarget_notes_matching(&mut self, name: &str, new_folder: Option<&str>) -> Result<usize> {
+        let ids: Vec<String> = self
+            .index
+            .values()
+            .filter(|m| m.folder.as_deref().is_some_and(|f| eq_ci(f, name)))
+            .map(|m| m.id.clone())
+            .collect();
+        let mut moved = 0;
+        for id in ids {
+            let mut note = self.read(&id)?;
+            note.folder = new_folder.map(|f| f.to_string());
+            note.updated = Utc::now();
+            self.write_note(&note)?;
+            self.index.insert(note.id.clone(), NoteMeta::from(&note));
+            moved += 1;
+        }
+        Ok(moved)
+    }
+
     /// Permanently delete everything in `.trash/`. Returns file count.
     pub fn empty_trash(&self) -> usize {
         let mut n = 0;
@@ -279,7 +388,7 @@ impl NotesStore {
 
 /// Atomic write: temp file in the same directory, then rename over the target.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("md.tmp");
+    let tmp = path.with_extension("tmp");
     fs::write(&tmp, bytes)?;
     fs::rename(&tmp, path)?;
     Ok(())
@@ -296,7 +405,11 @@ mod tests {
 
     fn setup() -> (TempDir, NotesStore) {
         let tmp = TempDir::new().unwrap();
-        let store = NotesStore::new(tmp.path().join("notes")).unwrap();
+        let store = NotesStore::new(
+            tmp.path().join("notes"),
+            tmp.path().join("folders.json"),
+        )
+        .unwrap();
         (tmp, store)
     }
 
@@ -304,7 +417,7 @@ mod tests {
     fn create_and_list_roundtrip() {
         let (_tmp, mut store) = setup();
         let note = store
-            .create("Tiếng Việt 123", "nội dung body", vec!["tag1".into()])
+            .create("Tiếng Việt 123", "nội dung body", vec!["tag1".into()], None)
             .unwrap();
         let list = store.list();
         assert_eq!(list.len(), 1);
@@ -316,7 +429,7 @@ mod tests {
     #[test]
     fn update_changes_fields_and_timestamp() {
         let (_tmp, mut store) = setup();
-        let note = store.create("t", "b", vec![]).unwrap();
+        let note = store.create("t", "b", vec![], None).unwrap();
         let before = note.updated;
         let updated = store
             .update(&note.id, NotePatch { title: Some("t2".into()), pinned: Some(true), ..Default::default() })
@@ -330,8 +443,8 @@ mod tests {
     #[test]
     fn attachment_refs_include_trash_and_corrupt_files() {
         let (_tmp, mut store) = setup();
-        store.create("live", "![a](attachments/live.png)", vec![]).unwrap();
-        let trashed = store.create("t", "![a](attachments/trashed (1).png)", vec![]).unwrap();
+        store.create("live", "![a](attachments/live.png)", vec![], None).unwrap();
+        let trashed = store.create("t", "![a](attachments/trashed (1).png)", vec![], None).unwrap();
         store.delete(&trashed.id).unwrap();
         fs::write(store.dir.join("broken.md"), "no frontmatter [f](attachments/corrupt.pdf)").unwrap();
         store.reload();
@@ -344,7 +457,7 @@ mod tests {
     #[test]
     fn delete_moves_to_trash_and_restore() {
         let (_tmp, mut store) = setup();
-        let note = store.create("t", "b", vec![]).unwrap();
+        let note = store.create("t", "b", vec![], None).unwrap();
         store.delete(&note.id).unwrap();
         assert!(store.list().is_empty());
         assert!(store.trash_dir.join(format!("{}.md", note.id)).exists());
@@ -357,8 +470,8 @@ mod tests {
     #[test]
     fn search_matches_title_and_body_case_insensitive() {
         let (_tmp, mut store) = setup();
-        store.create("Tiếng Việt", "nội dung", vec![]).unwrap();
-        store.create("other", "học tiếng", vec![]).unwrap();
+        store.create("Tiếng Việt", "nội dung", vec![], None).unwrap();
+        store.create("other", "học tiếng", vec![], None).unwrap();
         assert_eq!(store.search("việt", 10).len(), 1); // title match
         assert_eq!(store.search("TIẾNG", 10).len(), 2); // title + body
         assert!(store.search("   ", 10).is_empty());
@@ -367,8 +480,8 @@ mod tests {
     #[test]
     fn search_ranks_title_above_body() {
         let (_tmp, mut store) = setup();
-        store.create("aaa", "no match here", vec![]).unwrap();
-        store.create("zzz", "aaa in body", vec![]).unwrap();
+        store.create("aaa", "no match here", vec![], None).unwrap();
+        store.create("zzz", "aaa in body", vec![], None).unwrap();
         let results = store.search("aaa", 10);
         assert_eq!(results[0].title, "aaa");
     }
@@ -376,11 +489,11 @@ mod tests {
     #[test]
     fn list_orders_pinned_first_then_updated_desc() {
         let (_tmp, mut store) = setup();
-        let a = store.create("a", "", vec![]).unwrap();
+        let a = store.create("a", "", vec![], None).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let b = store.create("b", "", vec![]).unwrap();
+        let b = store.create("b", "", vec![], None).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(5));
-        store.create("c", "", vec![]).unwrap();
+        store.create("c", "", vec![], None).unwrap();
         store.update(&a.id, NotePatch { pinned: Some(true), ..Default::default() }).unwrap();
         let titles: Vec<String> = store.list().into_iter().map(|n| n.title).collect();
         assert_eq!(titles, vec!["a", "c", "b"]); // pinned first, then newest
@@ -390,8 +503,8 @@ mod tests {
     #[test]
     fn tags_counts_and_stats() {
         let (_tmp, mut store) = setup();
-        store.create("a", "one two", vec!["work".into(), "life".into()]).unwrap();
-        store.create("b", "three", vec!["work".into()]).unwrap();
+        store.create("a", "one two", vec!["work".into(), "life".into()], None).unwrap();
+        store.create("b", "three", vec!["work".into()], None).unwrap();
         store.update(&store.list()[0].id, NotePatch { pinned: Some(true), ..Default::default() }).unwrap();
         assert_eq!(store.tags(), vec![("life".to_string(), 1), ("work".to_string(), 2)]);
         let stats = store.stats();
@@ -415,7 +528,7 @@ mod tests {
     #[test]
     fn reload_picks_up_external_changes() {
         let (tmp, mut store) = setup();
-        let note = store.create("orig title", "b", vec![]).unwrap();
+        let note = store.create("orig title", "b", vec![], None).unwrap();
         let path = tmp.path().join("notes").join(format!("{}.md", note.id));
         // Overwrite on disk behind the store's back.
         let raw = fs::read_to_string(&path).unwrap().replace("orig", "external");
@@ -427,8 +540,8 @@ mod tests {
     #[test]
     fn empty_trash_deletes_trash_files() {
         let (tmp, mut store) = setup();
-        let a = store.create("a", "", vec![]).unwrap();
-        let b = store.create("b", "", vec![]).unwrap();
+        let a = store.create("a", "", vec![], None).unwrap();
+        let b = store.create("b", "", vec![], None).unwrap();
         store.delete(&a.id).unwrap();
         store.delete(&b.id).unwrap();
         fs::write(tmp.path().join("notes/.trash/stray.md"), "x").unwrap();
@@ -440,9 +553,9 @@ mod tests {
     fn attachment_refs_scans_all_bodies() {
         let (_tmp, mut store) = setup();
         store
-            .create("a", "![x](attachments/k1.png) [f](attachments/k2.pdf)", vec![])
+            .create("a", "![x](attachments/k1.png) [f](attachments/k2.pdf)", vec![], None)
             .unwrap();
-        store.create("b", "no refs here", vec![]).unwrap();
+        store.create("b", "no refs here", vec![], None).unwrap();
         let refs = store.attachment_refs();
         assert!(refs.contains("k1.png"));
         assert!(refs.contains("k2.pdf"));
@@ -452,7 +565,7 @@ mod tests {
     #[test]
     fn read_body_range_slices_unicode_safely() {
         let (_tmp, mut store) = setup();
-        let note = store.create("Đô", "àáạbcdefghijklmnop", vec![]).unwrap();
+        let note = store.create("Đô", "àáạbcdefghijklmnop", vec![], None).unwrap();
         let (slice, total) = store.read_body_range(&note.id, 0, 4).unwrap();
         assert_eq!(slice, "àáạb");
         assert_eq!(total, 18);
@@ -460,5 +573,93 @@ mod tests {
         assert_eq!(slice2, "nop");
         let (slice3, _) = store.read_body_range(&note.id, 0, 0).unwrap();
         assert_eq!(slice3.chars().count(), 1); // max 0 clamps to 1
+    }
+
+    #[test]
+    fn folder_crud_and_union_listing() {
+        let (_tmp, mut store) = setup();
+        store.create_folder("Work").unwrap();
+        // Union: registry + folder on a note that the registry doesn't know.
+        let n = store
+            .create("Cloud note", "b", vec![], Some("Từ cloud".into()))
+            .unwrap();
+        assert_eq!(
+            store.list_folders(),
+            vec!["Từ cloud".to_string(), "Work".to_string()]
+        );
+        // Duplicate (case-insensitive) is rejected.
+        assert!(store.create_folder("work").is_err());
+        // Empty/blank names rejected.
+        assert!(store.create_folder("   ").is_err());
+        let _ = n;
+    }
+
+    #[test]
+    fn set_note_folder_moves_and_bumps_updated() {
+        let (_tmp, mut store) = setup();
+        store.create_folder("Work").unwrap();
+        let note = store.create("a", "b", vec![], None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let moved = store.set_note_folder(&note.id, Some("Work")).unwrap();
+        assert_eq!(moved.folder.as_deref(), Some("Work"));
+        assert!(moved.updated > note.updated);
+        // Unknown folder → error.
+        assert!(store.set_note_folder(&note.id, Some("Nope")).is_err());
+        // Clear → None.
+        let cleared = store.set_note_folder(&note.id, None).unwrap();
+        assert_eq!(cleared.folder, None);
+    }
+
+    #[test]
+    fn rename_folder_updates_registry_and_notes() {
+        let (_tmp, mut store) = setup();
+        store.create_folder("Work").unwrap();
+        let a = store.create("a", "b", vec![], Some("work".into())).unwrap();
+        let b = store.create("b", "c", vec![], None).unwrap();
+        let moved = store.rename_folder("Work", "Việc").unwrap();
+        assert_eq!(moved, 1);
+        assert_eq!(store.read(&a.id).unwrap().folder.as_deref(), Some("Việc"));
+        assert_eq!(store.read(&b.id).unwrap().folder, None);
+        assert!(store.list_folders().contains(&"Việc".to_string()));
+        assert!(!store.list_folders().iter().any(|f| f.eq_ignore_ascii_case("work")));
+        // Renaming bumps updated so sync newer-wins picks the change up.
+        assert!(store.read(&a.id).unwrap().updated >= a.updated);
+        // Unknown source folder → error.
+        assert!(store.rename_folder("Nope", "X").is_err());
+        // Renaming onto an existing folder → error.
+        store.create_folder("Khác").unwrap();
+        assert!(store.rename_folder("Việc", "khác").is_err());
+    }
+
+    #[test]
+    fn remove_folder_unfiles_notes_and_registry() {
+        let (_tmp, mut store) = setup();
+        store.create_folder("Temp").unwrap();
+        let a = store.create("a", "b", vec![], Some("Temp".into())).unwrap();
+        let moved = store.remove_folder("temp").unwrap();
+        assert_eq!(moved, 1);
+        assert_eq!(store.read(&a.id).unwrap().folder, None);
+        assert!(!store.list_folders().contains(&"Temp".to_string()));
+        assert_eq!(store.remove_folder("Temp").unwrap(), 0);
+    }
+
+    #[test]
+    fn folders_persist_across_store_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let mut store =
+            NotesStore::new(tmp.path().join("notes"), tmp.path().join("folders.json")).unwrap();
+        store.create_folder("Lâu dài").unwrap();
+        drop(store);
+        let store2 =
+            NotesStore::new(tmp.path().join("notes"), tmp.path().join("folders.json")).unwrap();
+        assert!(store2.list_folders().contains(&"Lâu dài".to_string()));
+    }
+
+    #[test]
+    fn reload_fallback_meta_has_no_folder() {
+        let (tmp, mut store) = setup();
+        fs::write(tmp.path().join("notes/broken.md"), "no frontmatter").unwrap();
+        store.reload();
+        assert_eq!(store.list()[0].folder, None);
     }
 }
