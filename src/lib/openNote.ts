@@ -13,7 +13,7 @@ export function parseNoteHref(href: string): string | null {
  * (e.g. just created by the agent), then select it. Returns false — with a
  * toast — when the note cannot be opened.
  */
-export async function openNoteById(id: string): Promise<boolean> {
+export async function openNoteById(id: string, opts: { dockChat?: boolean } = {}): Promise<boolean> {
   if (!id) return false;
   const ui = useUi.getState();
   const { notes, load } = useNotesStore.getState();
@@ -22,5 +22,8 @@ export async function openNoteById(id: string): Promise<boolean> {
   await useNotesStore.getState().select(id);
   if (useNotesStore.getState().body === null) return false;
   if (ui.section !== "notes") ui.setSection("notes");
+  // Links clicked inside the assistant panel keep the conversation visible,
+  // docked next to the note (both chat variants share the same conversation).
+  if (opts.dockChat) useUi.getState().setChatOpen(true);
   return true;
 }

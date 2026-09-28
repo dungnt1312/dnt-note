@@ -18,12 +18,12 @@
 ```bash
 npm install
 npm run tauri dev        # app desktop đầy đủ (mở cửa sổ Tauri)
-npm run dev              # browser-only: Vite ở http://localhost:5173
+npm run dev              # browser-only: Vite ở http://localhost:5273
 ```
 
 - `npm run dev` chạy app trong browser với shim: Tauri API qua `isTauri` guard + dynamic import;
   providers fallback localStorage, không có file IO thật — dùng cho UI dev/test nhanh.
-- `npm run tauri dev` dùng dev server `localhost:5173` (strictPort trong `vite.config.ts`).
+- `npm run tauri dev` dùng dev server `localhost:5273` (strictPort trong `vite.config.ts`).
 
 ## 3. Build release
 

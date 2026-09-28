@@ -24,7 +24,7 @@ README ghi mốc: 168 TS tests + 52 Rust tests pass (số sẽ trôi khi develop
 dnt-note/
 ├── index.html                  # lang="vi", favicon.svg, entry Vite
 ├── package.json                # version 0.1.0, scripts (bảng dưới)
-├── vite.config.ts              # port 5173 strictPort, target es2022, plugin react + tailwind
+├── vite.config.ts              # port 5273 strictPort, target es2022, plugin react + tailwind
 ├── vitest.config.ts / vitest.setup.ts   # jsdom, pin ngôn ngữ vi
 ├── tsconfig.json               # ES2022, strict
 ├── scripts/make-icon.mjs       # sinh bộ icon từ src-tauri/icons/dnt-note.svg (tauri icon)

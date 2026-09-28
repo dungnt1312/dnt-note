@@ -66,7 +66,7 @@ describe("openNoteById", () => {
       saveState: "saved",
       lastDeleted: null,
     });
-    useUi.setState({ section: "chat", toasts: [] });
+    useUi.setState({ section: "chat", chatOpen: false, toasts: [] });
     vi.clearAllMocks();
   });
 
@@ -78,6 +78,26 @@ describe("openNoteById", () => {
     expect(useNotesStore.getState().selectedId).toBe("n1");
     expect(useNotesStore.getState().body).toBe("body of n1");
     expect(useUi.getState().section).toBe("notes");
+    // Default (e.g. deep link) leaves the docked assistant alone.
+    expect(useUi.getState().chatOpen).toBe(false);
+  });
+
+  it("docks the assistant next to the note when dockChat is set", async () => {
+    useNotesStore.setState({ notes: await mocked.list() });
+    useUi.setState({ section: "chat", chatOpen: false });
+
+    await expect(openNoteById("n1", { dockChat: true })).resolves.toBe(true);
+    expect(useUi.getState().section).toBe("notes");
+    expect(useUi.getState().chatOpen).toBe(true);
+  });
+
+  it("does not dock the assistant when the note cannot be read", async () => {
+    mocked.read.mockRejectedValueOnce(new Error("gone"));
+    useNotesStore.setState({ notes: await mocked.list() });
+    useUi.setState({ chatOpen: false });
+
+    await expect(openNoteById("n1", { dockChat: true })).resolves.toBe(false);
+    expect(useUi.getState().chatOpen).toBe(false);
   });
 
   it("refreshes the list first when the note is unknown (e.g. agent just created it)", async () => {

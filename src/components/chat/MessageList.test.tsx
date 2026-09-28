@@ -27,7 +27,7 @@ describe("MessageList note references", () => {
 
     const chip = screen.getByRole("button", { name: /Ghi A/ });
     fireEvent.click(chip);
-    expect(openNoteMock).toHaveBeenCalledWith("n1");
+    expect(openNoteMock).toHaveBeenCalledWith("n1", { dockChat: true });
   });
 
   it("leaves normal links as anchors", () => {
@@ -58,7 +58,7 @@ describe("MessageList note references", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Ghi B" }));
-    expect(openNoteMock).toHaveBeenCalledWith("n2");
+    expect(openNoteMock).toHaveBeenCalledWith("n2", { dockChat: true });
   });
 
   it("does not make failed mentions clickable", () => {

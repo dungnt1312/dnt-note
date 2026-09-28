@@ -72,7 +72,7 @@ function NoteAnchor({ href, children }: ComponentProps<"a">) {
     <button
       type="button"
       title={t("chat.openThisNote")}
-      onClick={() => void openNoteById(id)}
+      onClick={() => void openNoteById(id, { dockChat: true })}
       className="inline-flex max-w-full items-center gap-1 rounded-full border border-hairline bg-subtle px-2 py-0.5 font-normal text-accent transition-colors hover:bg-hover hover:text-accent"
     >
       <FileText size={12} aria-hidden="true" className="shrink-0" />
@@ -291,7 +291,7 @@ function UserMessage({ message, onRetry, busy }: { message: UiMessage; onRetry?:
                 key={m.id}
                 type="button"
                 title={t("chat.openThisNote")}
-                onClick={() => void openNoteById(m.id)}
+                onClick={() => void openNoteById(m.id, { dockChat: true })}
                 className="inline-flex h-6 items-center gap-1 rounded-full border border-hairline px-2 text-footnote text-fg-secondary transition-colors hover:bg-hover hover:text-fg"
               >
                 <FileText size={11} aria-hidden="true" />
