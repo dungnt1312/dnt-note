@@ -133,7 +133,8 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let notes_dir = app_data_notes_dir(&handle);
-            let mut notes_store = NotesStore::new(notes_dir.clone())
+            let folders_path = app_data_dir(&handle).join("folders.json");
+            let mut notes_store = NotesStore::new(notes_dir.clone(), folders_path)
                 .map_err(|e| format!("init store: {e}"))?;
 
             if !is_onboarded(&handle) {
@@ -264,6 +265,11 @@ pub fn run() {
             commands::notes::search_notes,
             commands::notes::list_tags,
             commands::notes::empty_trash,
+            commands::notes::list_folders,
+            commands::notes::create_folder,
+            commands::notes::rename_folder,
+            commands::notes::delete_folder,
+            commands::notes::move_note_to_folder,
             commands::stats::get_stats,
             commands::chats::list_chats,
             commands::chats::load_chat,

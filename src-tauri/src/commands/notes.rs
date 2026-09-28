@@ -27,10 +27,16 @@ pub fn create_note(
     title: String,
     body: Option<String>,
     tags: Option<Vec<String>>,
+    folder: Option<String>,
 ) -> CmdResult<Note> {
     let mut store = state.store.lock().map_err(err_of)?;
     store
-        .create(&title, body.as_deref().unwrap_or(""), tags.unwrap_or_default())
+        .create(
+            &title,
+            body.as_deref().unwrap_or(""),
+            tags.unwrap_or_default(),
+            folder,
+        )
         .map_err(err_of)
 }
 
@@ -82,6 +88,61 @@ pub fn empty_trash(state: State<AppState>) -> CmdResult<usize> {
     Ok(store.empty_trash())
 }
 
+#[tauri::command]
+pub fn list_folders(state: State<AppState>) -> CmdResult<Vec<String>> {
+    let store = state.store.lock().map_err(err_of)?;
+    Ok(store.list_folders())
+}
+
+#[tauri::command]
+pub fn create_folder(state: State<AppState>, name: String) -> CmdResult<Vec<String>> {
+    let mut store = state.store.lock().map_err(err_of)?;
+    store.create_folder(&name).map_err(err_of)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderMutation {
+    pub folders: Vec<String>,
+    pub moved: usize,
+}
+
+#[tauri::command]
+pub fn rename_folder(
+    state: State<AppState>,
+    old: String,
+    new: String,
+) -> CmdResult<FolderMutation> {
+    let mut store = state.store.lock().map_err(err_of)?;
+    let moved = store.rename_folder(&old, &new).map_err(err_of)?;
+    Ok(FolderMutation {
+        folders: store.list_folders(),
+        moved,
+    })
+}
+
+#[tauri::command]
+pub fn delete_folder(state: State<AppState>, name: String) -> CmdResult<FolderMutation> {
+    let mut store = state.store.lock().map_err(err_of)?;
+    let moved = store.remove_folder(&name).map_err(err_of)?;
+    Ok(FolderMutation {
+        folders: store.list_folders(),
+        moved,
+    })
+}
+
+#[tauri::command]
+pub fn move_note_to_folder(
+    state: State<AppState>,
+    id: String,
+    folder: Option<String>,
+) -> CmdResult<Note> {
+    let mut store = state.store.lock().map_err(err_of)?;
+    store
+        .set_note_folder(&id, folder.as_deref())
+        .map_err(err_of)
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagCount {
@@ -103,7 +164,12 @@ pub fn seed_demo_notes(store: &mut NotesStore) -> std::io::Result<()> {
     ];
     for (title, tags, body) in demos {
         store
-            .create(title, body, tags.iter().map(|t| t.to_string()).collect())
+            .create(
+                title,
+                body,
+                tags.iter().map(|t| t.to_string()).collect(),
+                None,
+            )
             .map_err(|e| std::io::Error::other(e.to_string()))?;
     }
     Ok(())
@@ -117,7 +183,8 @@ mod tests {
     #[test]
     fn seeds_exactly_four_demo_notes() {
         let tmp = TempDir::new().unwrap();
-        let mut store = NotesStore::new(tmp.path().join("notes")).unwrap();
+        let mut store =
+            NotesStore::new(tmp.path().join("notes"), tmp.path().join("folders.json")).unwrap();
         seed_demo_notes(&mut store).unwrap();
         let list = store.list();
         assert_eq!(list.len(), 4);
