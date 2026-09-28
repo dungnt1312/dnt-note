@@ -5,6 +5,7 @@ export interface NoteMeta {
   title: string;
   tags: string[];
   pinned: boolean;
+  folder: string | null;
   created: string;
   updated: string;
   snippet: string;
@@ -48,6 +49,16 @@ export const api = {
       invoke<NoteMeta[]>("search_notes", { query, limit }),
     tags: () => invoke<TagCount[]>("list_tags"),
     emptyTrash: () => invoke<number>("empty_trash"),
+    moveToFolder: (id: string, folder: string | null) =>
+      invoke<Note>("move_note_to_folder", { id, folder }),
     stats: () => invoke<StatsDto>("get_stats"),
+  },
+  folders: {
+    list: () => invoke<string[]>("list_folders"),
+    create: (name: string) => invoke<string[]>("create_folder", { name }),
+    rename: (oldName: string, newName: string) =>
+      invoke<{ folders: string[]; moved: number }>("rename_folder", { old: oldName, new: newName }),
+    del: (name: string) =>
+      invoke<{ folders: string[]; moved: number }>("delete_folder", { name }),
   },
 };

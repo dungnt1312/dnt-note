@@ -7,6 +7,8 @@ export type SaveState = "saved" | "dirty" | "saving";
 interface NotesState {
   notes: NoteMeta[];
   tags: TagCount[];
+  /** Folder names (backend union of registry + folders found on notes). */
+  folders: string[];
   selectedId: string | null;
   body: string | null;
   saveState: SaveState;
@@ -22,6 +24,15 @@ interface NotesState {
   setBody: (body: string) => void;
   flushSave: () => Promise<void>;
   refreshTags: () => Promise<void>;
+  loadFolders: () => Promise<void>;
+  /** Returns an error message on failure, null on success. */
+  createFolder: (name: string) => Promise<string | null>;
+  /** Returns the number of notes retargeted, or an error message. */
+  renameFolder: (oldName: string, newName: string) => Promise<number | string>;
+  /** Returns the number of notes moved back to root, or an error message. */
+  deleteFolder: (name: string) => Promise<number | string>;
+  /** Optimistic move; resolves to the note's previous folder (for Undo) or "error". */
+  moveNoteToFolder: (id: string, folder: string | null) => Promise<string | null | "error">;
 }
 
 const AUTOSAVE_MS = 600;
@@ -63,14 +74,19 @@ async function bumpTagRefresh() {
 export const useNotesStore = create<NotesState>()((set, get) => ({
   notes: [],
   tags: [],
+  folders: [],
   selectedId: null,
   body: null,
   saveState: "saved",
   lastDeleted: null,
 
   load: async () => {
-    const [notes, tags] = await Promise.all([api.notes.list(), api.notes.tags()]);
-    set({ notes, tags });
+    const [notes, tags, folders] = await Promise.all([
+      api.notes.list(),
+      api.notes.tags(),
+      api.folders.list(),
+    ]);
+    set({ notes, tags, folders });
   },
 
   select: async (id) => {
@@ -177,6 +193,64 @@ export const useNotesStore = create<NotesState>()((set, get) => ({
       set({ tags: await api.notes.tags() });
     } catch {
       // ignore
+    }
+  },
+
+  loadFolders: async () => {
+    try {
+      set({ folders: await api.folders.list() });
+    } catch (e) {
+      console.error("load folders failed", e);
+    }
+  },
+
+  createFolder: async (name) => {
+    try {
+      set({ folders: await api.folders.create(name) });
+      return null;
+    } catch (e) {
+      console.error("create folder failed", e);
+      return e instanceof Error ? e.message : String(e);
+    }
+  },
+
+  renameFolder: async (oldName, newName) => {
+    try {
+      const { folders, moved } = await api.folders.rename(oldName, newName);
+      set({ folders });
+      return moved;
+    } catch (e) {
+      console.error("rename folder failed", e);
+      return e instanceof Error ? e.message : String(e);
+    }
+  },
+
+  deleteFolder: async (name) => {
+    try {
+      const { folders, moved } = await api.folders.del(name);
+      set({ folders });
+      return moved;
+    } catch (e) {
+      console.error("delete folder failed", e);
+      return e instanceof Error ? e.message : String(e);
+    }
+  },
+
+  moveNoteToFolder: async (id, folder) => {
+    const prev = get().notes.find((n) => n.id === id)?.folder ?? null;
+    if (prev === folder) return prev;
+    set((s) => ({
+      notes: s.notes.map((n) => (n.id === id ? { ...n, folder } : n)),
+    }));
+    try {
+      await api.notes.moveToFolder(id, folder);
+      return prev;
+    } catch (e) {
+      console.error("move to folder failed", e);
+      set((s) => ({
+        notes: s.notes.map((n) => (n.id === id ? { ...n, folder: prev } : n)),
+      }));
+      return "error";
     }
   },
 }));
