@@ -5,3 +5,6 @@ src-tauri/gen/schemas/
 *.local
 .DS_Store
 .superpowers/
+.zcode/
+spike-report/
+backups/
